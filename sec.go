@@ -1,16 +1,13 @@
 package main
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 type Calc struct {
-	parser *parser
+	parser parser
 	Env    Env
-}
-
-func New() Calc {
-	return Calc{
-		parser: new(parser),
-	}
 }
 
 func (e Calc) Eval(s string) (val float64, err error) {
@@ -30,6 +27,8 @@ func (e Calc) Eval(s string) (val float64, err error) {
 			panic(t)
 		}
 	}()
+
+	fmt.Println(expr)
 
 	return expr.val(e.Env), nil
 }

@@ -126,8 +126,8 @@ func (l *lexer) init(ch rune) {
 
 func (l *lexer) unread(i int) {
 	for ; i > 0; i-- {
-		l.col -= len(l.peek().txt)
 		l.index--
+		l.col -= len(l.peek().txt)
 	}
 }
 

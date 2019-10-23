@@ -72,6 +72,7 @@ func (p *parser) parse(script string) (exp expr, err error) {
 	if err != nil {
 		return
 	}
+	fmt.Println(p.lex.tokens)
 
 	defer func() {
 		switch t := recover().(type) {
@@ -92,6 +93,7 @@ func (p *parser) parse(script string) (exp expr, err error) {
 
 	exp = p.parseAdditive()
 
+	fmt.Printf("%+v\n", p.lex)
 	if p.lex.next() {
 		msg := fmt.Sprintf("unexpected %q at %d", p.lex.peek().txt, p.lex.col)
 		panic(parserPanic(msg))
@@ -170,5 +172,6 @@ func (p *parser) parsePrimary() (e expr) {
 		return addStmt
 	}
 
-	panic("unexpected " + tk.txt)
+	msg := fmt.Sprintf("unexpected %q at %d", tk.txt, p.lex.col)
+	panic(parserPanic(msg))
 }

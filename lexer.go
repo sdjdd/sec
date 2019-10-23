@@ -4,21 +4,20 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 )
 
 type lexer struct {
 	tokens []token
-	token  token
-	buf    bytes.Buffer
-	count  int
-	index  int
+	token  token        // current token
+	buf    bytes.Buffer // reading buffer
+	col    int          // current token's column
+	index  int          // read index
 }
 
 type token struct {
-	typ int
-	txt string
+	typ int    // type
+	txt string // text
 }
 
 type lexerPanic string
@@ -49,17 +48,22 @@ func isBlank(ch rune) bool {
 	return ch == ' ' || ch == '\t'
 }
 
-func (t token) val() (v float64) {
-	switch t.typ {
-	case integer:
-		t, _ := strconv.Atoi(t.txt)
-		v = float64(t)
-	case float:
-		v, _ = strconv.ParseFloat(t.txt, 64)
-	default:
-		panic("unsupported token " + t.String())
+func (t token) eq(texts ...string) bool {
+	for _, txt := range texts {
+		if t.txt == txt {
+			return true
+		}
 	}
-	return
+	return false
+}
+
+func (t token) is(types ...int) bool {
+	for _, typ := range types {
+		if t.typ == typ {
+			return true
+		}
+	}
+	return false
 }
 
 func (t token) String() string {
@@ -100,19 +104,11 @@ func (l *lexer) init(ch rune) {
 			l.token.typ = integer
 		}
 	} else if isBlank(ch) {
-		l.count++
+		l.col++
 		return // ignore blank
 	} else {
 		switch ch {
-		case '+':
-			fallthrough
-		case '-':
-			fallthrough
-		case '*':
-			fallthrough
-		case '/':
-			fallthrough
-		case '%':
+		case '+', '-', '*', '%':
 			l.token.typ = operator
 		case '(':
 			l.token.typ = lBracket
@@ -121,16 +117,23 @@ func (l *lexer) init(ch rune) {
 		case ',':
 			l.token.typ = comma
 		default:
-			msg := fmt.Sprintf("invalid character %q at %d", ch, l.count+1)
+			msg := fmt.Sprintf("invalid character %q at %d", ch, l.col+1)
 			panic(lexerPanic(msg))
 		}
 	}
 	l.write(ch)
 }
 
+func (l *lexer) unread(i int) {
+	for ; i > 0; i-- {
+		l.col -= len(l.peek().txt)
+		l.index--
+	}
+}
+
 func (l *lexer) write(ch rune) {
 	l.buf.WriteRune(ch)
-	l.count++
+	l.col++
 }
 
 func (l *lexer) flush() {
@@ -149,7 +152,7 @@ func (l *lexer) flush() {
 	case binLiteral:
 		if l.buf.Len() == 2 {
 			msg := fmt.Sprintf("invalid binary literal %q at %d",
-				l.buf.String(), l.count-1)
+				l.buf.String(), l.col-1)
 			panic(lexerPanic(msg))
 		}
 	case octLiteral:
@@ -157,14 +160,14 @@ func (l *lexer) flush() {
 			str := l.buf.String()
 			if str == "0o" || str == "0O" {
 				msg := fmt.Sprintf("invalid octal literal %q at %d",
-					l.buf.String(), l.count-1)
+					l.buf.String(), l.col-1)
 				panic(lexerPanic(msg))
 			}
 		}
 	case hexLiteral:
 		if l.buf.Len() == 2 {
 			msg := fmt.Sprintf("invalid hexdecimal literal %q at %d",
-				l.buf.String(), l.count-1)
+				l.buf.String(), l.col-1)
 			panic(lexerPanic(msg))
 		}
 	case zero:
@@ -175,6 +178,7 @@ func (l *lexer) flush() {
 func (l *lexer) tokenize(script string) (err error) {
 	l.tokens = l.tokens[:0]
 	l.index = -1
+	l.col = 0
 
 	defer func() {
 		switch t := recover().(type) {
@@ -185,7 +189,7 @@ func (l *lexer) tokenize(script string) (err error) {
 		default:
 			panic(t)
 		}
-		l.count = 0
+		l.col = 0
 	}()
 
 	expr := strings.NewReader(script)
@@ -272,6 +276,9 @@ func (l *lexer) peek() token {
 }
 
 func (l *lexer) next() bool {
+	if l.index >= 0 && l.index < len(l.tokens) {
+		l.col += len(l.peek().txt)
+	}
 	l.index++
 	return l.index < len(l.tokens)
 }

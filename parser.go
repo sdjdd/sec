@@ -9,6 +9,11 @@ import (
 
 type parserPanic string
 
+type parseErr struct {
+	process string
+	message string
+}
+
 type parser struct {
 	lex lexer
 }
@@ -27,6 +32,15 @@ type Env map[string]float64
 type variable string
 
 type literal token
+
+func perr(process, layout string, a ...interface{}) parseErr {
+	return parseErr{
+		process: process,
+		message: fmt.Sprintf(layout, a...),
+	}
+}
+
+func (e parseErr) Error() string { return e.message }
 
 func (v variable) val(env Env) float64 {
 	val, ok := env[string(v)]
@@ -64,7 +78,7 @@ func (b binary) val(env Env) float64 {
 		return math.Mod(l, r)
 	}
 
-	panic(fmt.Sprintf("The operator %q is not implemented", b.operator))
+	panic(fmt.Sprintf("the operator %q is not implemented", b.operator))
 }
 
 func (p *parser) parse(script string) (exp expr, err error) {
@@ -72,15 +86,14 @@ func (p *parser) parse(script string) (exp expr, err error) {
 	if err != nil {
 		return
 	}
-	fmt.Println(p.lex.tokens)
 
 	defer func() {
 		switch t := recover().(type) {
 		case nil: // do nothing
-		case lexerPanic:
-			err = errors.New(string(t))
 		case parserPanic:
 			err = errors.New(string(t))
+		case parseErr:
+			err = fmt.Errorf("process: %s, message: %s", t.process, t.message)
 		default:
 			panic(t)
 		}
@@ -93,24 +106,22 @@ func (p *parser) parse(script string) (exp expr, err error) {
 
 	exp = p.parseAdditive()
 
-	fmt.Printf("%+v\n", p.lex)
 	if p.lex.next() {
-		msg := fmt.Sprintf("unexpected %q at %d", p.lex.peek().txt, p.lex.col)
-		panic(parserPanic(msg))
+		panic(perr("parse", "unexpected %q at %d", p.lex.token.txt, p.lex.token.col))
 	}
 	return
 }
 
-// Addition = Multiplication ('+' Multiplication)*
+// Additive = Multiplicative ('+' Multiplicative)*
 func (p *parser) parseAdditive() (e expr) {
 	left := p.parseMultiplicative()
 	if left == nil {
-		panic("expect multiplicative statement")
+		panic(perr("additive", "expect multiplicative statement"))
 	}
 
 	e = left
 	for p.lex.next() {
-		op := p.lex.peek()
+		op := p.lex.token
 		if !op.eq("+", "-") {
 			p.lex.unread(1)
 			break
@@ -129,7 +140,7 @@ func (p *parser) parseAdditive() (e expr) {
 	return e
 }
 
-// Multiplication = Primary ('*' Primary)*
+// Multiplicative = Primary ('*' Primary)*
 func (p *parser) parseMultiplicative() (e expr) {
 	left := p.parsePrimary()
 	if left == nil {
@@ -138,7 +149,7 @@ func (p *parser) parseMultiplicative() (e expr) {
 
 	e = left
 	for p.lex.next() {
-		op := p.lex.peek()
+		op := p.lex.token
 		if !op.eq("*", "/", "%") || !p.lex.next() {
 			p.lex.unread(1)
 			break
@@ -154,24 +165,23 @@ func (p *parser) parseMultiplicative() (e expr) {
 }
 
 func (p *parser) parsePrimary() (e expr) {
-	tk := p.lex.peek()
-	switch tk.typ {
+	token := p.lex.token
+	switch token.typ {
 	case identifier:
-		return variable(tk.txt)
+		return variable(token.txt)
 	case integer, float, binLiteral, octLiteral, hexLiteral:
-		return literal(tk)
+		return literal(token)
 	case lBracket: // '('
 		if !p.lex.next() {
 			panic(parserPanic("unexpected EOF"))
 		}
 		addStmt := p.parseAdditive()
-		if !p.lex.next() || p.lex.peek().typ != rBracket {
-			msg := fmt.Sprintf("expect ')' at %d", p.lex.col+1)
+		if !p.lex.next() || p.lex.token.typ != rBracket {
+			msg := fmt.Sprintf("expect ')' at %d", p.lex.token.col)
 			panic(parserPanic(msg))
 		}
 		return addStmt
 	}
 
-	msg := fmt.Sprintf("unexpected %q at %d", tk.txt, p.lex.col)
-	panic(parserPanic(msg))
+	panic(perr("primary", "unexpected %q at %d", token.txt, token.col))
 }

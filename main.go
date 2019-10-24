@@ -16,7 +16,7 @@ func main() {
 		"yjspi": 114514,
 		"c3p":   250,
 	}
-	fmt.Println(calc.Eval(`yjspi%100*`))
+	fmt.Println(calc.Eval("3*4/2%5"))
 }
 
 func showTokens(lex *lexer, script string) {

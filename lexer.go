@@ -16,6 +16,7 @@ type lexer struct {
 }
 
 type token struct {
+	col int
 	typ int    // type
 	txt string // text
 }
@@ -90,7 +91,7 @@ func (t token) String() string {
 	case comma:
 		typ = "comma"
 	}
-	return fmt.Sprintf("<%s %q>", typ, t.txt)
+	return fmt.Sprintf("<%d %s %q>", t.col, typ, t.txt)
 }
 
 func (l *lexer) init(ch rune) {
@@ -108,7 +109,7 @@ func (l *lexer) init(ch rune) {
 		return // ignore blank
 	} else {
 		switch ch {
-		case '+', '-', '*', '%':
+		case '+', '-', '*', '/', '%':
 			l.token.typ = operator
 		case '(':
 			l.token.typ = lBracket
@@ -117,18 +118,19 @@ func (l *lexer) init(ch rune) {
 		case ',':
 			l.token.typ = comma
 		default:
-			msg := fmt.Sprintf("invalid character %q at %d", ch, l.col+1)
+			msg := fmt.Sprintf("invalid character %q at %d", ch, l.col)
 			panic(lexerPanic(msg))
 		}
 	}
+	l.token.col = l.col
 	l.write(ch)
 }
 
 func (l *lexer) unread(i int) {
-	for ; i > 0; i-- {
+	for ; i > 0 && l.index > 0; i-- {
 		l.index--
-		l.col -= len(l.peek().txt)
 	}
+	l.token = l.tokens[l.index]
 }
 
 func (l *lexer) write(ch rune) {
@@ -178,12 +180,11 @@ func (l *lexer) flush() {
 func (l *lexer) tokenize(script string) (err error) {
 	l.tokens = l.tokens[:0]
 	l.index = -1
-	l.col = 0
+	l.col = 1
 
 	defer func() {
 		switch t := recover().(type) {
-		case nil:
-			// ignore
+		case nil: // no panic
 		case lexerPanic:
 			err = errors.New(string(t))
 		default:
@@ -271,14 +272,11 @@ func (l *lexer) tokenize(script string) (err error) {
 	return
 }
 
-func (l *lexer) peek() token {
-	return l.tokens[l.index]
-}
-
 func (l *lexer) next() bool {
-	if l.index >= 0 && l.index < len(l.tokens) {
-		l.col += len(l.peek().txt)
+	if l.index < len(l.tokens)-1 {
+		l.index++
+		l.token = l.tokens[l.index]
+		return true
 	}
-	l.index++
-	return l.index < len(l.tokens)
+	return false
 }

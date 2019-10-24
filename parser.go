@@ -117,7 +117,7 @@ func (c call) val(env Env) float64 {
 	} else if no == 0 {
 		panic(evalPanic("function must return a value"))
 	} else if no > 1 {
-		panic(evalPanic("function can return only one value"))
+		panic(evalPanic("function must return only one value"))
 	} else if ft.Out(0).Kind() != reflect.Float64 {
 		panic(evalPanic("function must return a float64 value"))
 	}

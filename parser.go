@@ -4,10 +4,12 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"reflect"
 	"strconv"
 )
 
 type parserPanic string
+type evalPanic string
 
 type parseErr struct {
 	process string
@@ -22,16 +24,24 @@ type expr interface {
 	val(Env) float64
 }
 
+type unary struct {
+	op   string
+	expr expr
+}
+
 type binary struct {
 	operator string
 	l, r     expr
 }
 
-type Env map[string]float64
-
 type variable string
 
 type literal token
+
+type call struct {
+	name string
+	args []expr
+}
 
 func perr(process, layout string, a ...interface{}) parseErr {
 	return parseErr{
@@ -43,7 +53,7 @@ func perr(process, layout string, a ...interface{}) parseErr {
 func (e parseErr) Error() string { return e.message }
 
 func (v variable) val(env Env) float64 {
-	val, ok := env[string(v)]
+	val, ok := env.Vars[string(v)]
 	if !ok {
 		panic(parserPanic(fmt.Sprintf("undeclared variable %q", v)))
 	}
@@ -63,6 +73,17 @@ func (l literal) val(_ Env) (v float64) {
 	return
 }
 
+func (u unary) val(env Env) float64 {
+	switch u.op {
+	case "+":
+		return +u.expr.val(env)
+	case "-":
+		return -u.expr.val(env)
+	}
+
+	panic(evalPanic(fmt.Sprintf("unsupported unary operator %q", u.op)))
+}
+
 func (b binary) val(env Env) float64 {
 	l, r := b.l.val(env), b.r.val(env)
 	switch b.operator {
@@ -79,6 +100,53 @@ func (b binary) val(env Env) float64 {
 	}
 
 	panic(fmt.Sprintf("the operator %q is not implemented", b.operator))
+}
+
+func (c call) val(env Env) float64 {
+	rawFunc, ok := env.Funcs[c.name]
+	if !ok {
+		panic(evalPanic(fmt.Sprintf("undeclared function %q", c.name)))
+	}
+
+	ft := reflect.TypeOf(rawFunc)
+	ni, no := ft.NumIn(), ft.NumOut()
+
+	if ft.Kind() != reflect.Func {
+		panic(evalPanic(fmt.Sprintf("%q is not a function", c.name)))
+	} else if no == 0 {
+		panic(evalPanic("function must return a value"))
+	} else if no > 1 {
+		panic(evalPanic("function can return only one value"))
+	} else if ft.Out(0).Kind() != reflect.Float64 {
+		panic(evalPanic("function must return a float64 value"))
+	}
+
+	for i := 0; i < ni; i++ {
+		if ft.In(i).Kind() != reflect.Float64 {
+			if ft.IsVariadic() && i == ni-1 {
+				break
+			}
+			panic(evalPanic(fmt.Sprintf("argument %d of %q is not float64",
+				i+1, c.name)))
+		}
+	}
+
+	minArgs := ni
+	if ft.IsVariadic() {
+		minArgs--
+	}
+	if len(c.args) < minArgs {
+		panic(evalPanic(fmt.Sprintf("too few arguments to call %q", c.name)))
+	} else if len(c.args) > minArgs && !ft.IsVariadic() {
+		panic(evalPanic(fmt.Sprintf("too many arguments to call %q", c.name)))
+	}
+
+	args := make([]reflect.Value, len(c.args))
+	for i, arg := range c.args {
+		args[i] = reflect.ValueOf(arg.val(env))
+	}
+
+	return reflect.ValueOf(rawFunc).Call(args)[0].Float()
 }
 
 func (p *parser) parse(script string) (exp expr, err error) {
@@ -106,7 +174,7 @@ func (p *parser) parse(script string) (exp expr, err error) {
 
 	exp = p.parseAdditive()
 
-	if p.lex.next() {
+	if exp == nil || p.lex.next() {
 		panic(perr("parse", "unexpected %q at %d", p.lex.token.txt, p.lex.token.col))
 	}
 	return
@@ -114,20 +182,15 @@ func (p *parser) parse(script string) (exp expr, err error) {
 
 // Additive = Multiplicative ('+' Multiplicative)*
 func (p *parser) parseAdditive() (e expr) {
-	left := p.parseMultiplicative()
-	if left == nil {
-		panic(perr("additive", "expect multiplicative statement"))
+	if e = p.parseMultiplicative(); e == nil {
+		return
 	}
 
-	e = left
 	for p.lex.next() {
 		op := p.lex.token
-		if !op.eq("+", "-") {
+		if !op.eq("+", "-") || !p.lex.next() {
 			p.lex.unread(1)
 			break
-		}
-		if !p.lex.next() {
-			panic(parserPanic("unexpected EOF"))
 		}
 		right := p.parseMultiplicative()
 		if right == nil {
@@ -137,38 +200,78 @@ func (p *parser) parseAdditive() (e expr) {
 		e = binary{op.txt, e, right}
 	}
 
-	return e
+	return
 }
 
-// Multiplicative = Primary ('*' Primary)*
+// Multiplicative = Unary ('*' Unary)*
 func (p *parser) parseMultiplicative() (e expr) {
-	left := p.parsePrimary()
-	if left == nil {
-		panic("expect primary statement")
+	if e = p.parseUnary(); e == nil {
+		return
 	}
 
-	e = left
 	for p.lex.next() {
 		op := p.lex.token
 		if !op.eq("*", "/", "%") || !p.lex.next() {
 			p.lex.unread(1)
 			break
 		}
-		right := p.parsePrimary()
+		right := p.parseUnary()
 		if right == nil {
-			panic("expect primary statement")
+			p.lex.unread(2)
+			break
 		}
 		e = binary{op.txt, e, right}
 	}
 
-	return e
+	return
+}
+
+// Unary = '+' Unary
+//       | Primary
+func (p *parser) parseUnary() (e expr) {
+	if p.lex.token.typ == operator {
+		op := p.lex.token
+		if !p.lex.next() {
+			p.lex.unread(1)
+			return nil
+		}
+		return unary{op.txt, p.parseUnary()}
+	}
+
+	return p.parsePrimary()
 }
 
 func (p *parser) parsePrimary() (e expr) {
 	token := p.lex.token
 	switch token.typ {
 	case identifier:
-		return variable(token.txt)
+		// identifier + '(' :function call
+		if p.lex.next() && p.lex.token.typ == lBracket {
+			var args []expr
+			for {
+				if !p.lex.next() {
+					panic(perr("primary", "unexpected EOF, want ')'"))
+				}
+				arg := p.parseAdditive()
+				if arg == nil {
+					break
+				}
+				args = append(args, arg)
+				if !p.lex.next() {
+					panic(perr("primary", "unexpected EOF, want ')'"))
+				}
+				if p.lex.token.typ != comma {
+					break
+				}
+			}
+			if p.lex.token.typ != rBracket {
+				panic(perr("primary", "unexpected %q, want ')'", p.lex.token))
+			}
+			return call{token.txt, args}
+		} else {
+			p.lex.unread(1)
+			return variable(token.txt)
+		}
 	case integer, float, binLiteral, octLiteral, hexLiteral:
 		return literal(token)
 	case lBracket: // '('
@@ -183,5 +286,5 @@ func (p *parser) parsePrimary() (e expr) {
 		return addStmt
 	}
 
-	panic(perr("primary", "unexpected %q at %d", token.txt, token.col))
+	return nil
 }

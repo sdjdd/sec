@@ -13,10 +13,27 @@ func main() {
 
 	calc := Calc{}
 	calc.Env = Env{
-		"yjspi": 114514,
-		"c3p":   250,
+		Vars: map[string]float64{
+			"yjspi": 114514,
+			"c3p":   250,
+		},
+		Funcs: map[string]interface{}{
+			"gtmdc3p": func(b ...float64) (sum float64) {
+				for _, n := range b {
+					sum += n
+				}
+				return
+			},
+			"wyy": func(a, b float64) float64 {
+				return a + b
+			},
+		},
 	}
-	fmt.Println(calc.Eval("3*4/2%5"))
+
+	fmt.Println(calc.Eval("wyy(c3p,gtmdc3p())"))
+
+	calc.Env.Funcs = MathFuncs
+	fmt.Println(calc.Eval("round(2.6)"))
 }
 
 func showTokens(lex *lexer, script string) {

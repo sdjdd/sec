@@ -1,4 +1,4 @@
-package main
+package sec
 
 import (
 	"errors"
@@ -17,7 +17,8 @@ type parseErr struct {
 }
 
 type parser struct {
-	lex lexer
+	lex  lexer
+	vars []string
 }
 
 type expr interface {
@@ -55,7 +56,7 @@ func (e parseErr) Error() string { return e.message }
 func (v variable) val(env Env) float64 {
 	val, ok := env.Vars[string(v)]
 	if !ok {
-		panic(parserPanic(fmt.Sprintf("undeclared variable %q", v)))
+		panic(evalPanic(fmt.Sprintf("undeclared variable %q", v)))
 	}
 	return val
 }
@@ -155,6 +156,8 @@ func (p *parser) parse(script string) (exp expr, err error) {
 		return
 	}
 
+	p.vars = p.vars[:0]
+
 	defer func() {
 		switch t := recover().(type) {
 		case nil: // do nothing
@@ -241,37 +244,43 @@ func (p *parser) parseUnary() (e expr) {
 	return p.parsePrimary()
 }
 
+// Primary = identifier
+//         | number
+//         | identifier '(' Additive ')'
+//         | '(' Additive ')'
 func (p *parser) parsePrimary() (e expr) {
 	token := p.lex.token
 	switch token.typ {
 	case identifier:
 		// identifier + '(' :function call
-		if p.lex.next() && p.lex.token.typ == lBracket {
-			var args []expr
-			for {
-				if !p.lex.next() {
-					panic(perr("primary", "unexpected EOF, want ')'"))
+		if p.lex.next() {
+			if p.lex.token.typ == lBracket {
+				var args []expr
+				for {
+					if !p.lex.next() {
+						panic(perr("primary", "unexpected EOF, want ')'"))
+					}
+					arg := p.parseAdditive()
+					if arg == nil {
+						break
+					}
+					args = append(args, arg)
+					if !p.lex.next() {
+						panic(perr("primary", "unexpected EOF, want ')'"))
+					}
+					if p.lex.token.typ != comma {
+						break
+					}
 				}
-				arg := p.parseAdditive()
-				if arg == nil {
-					break
+				if p.lex.token.typ != rBracket {
+					panic(perr("primary", "unexpected %q, want ')'", p.lex.token))
 				}
-				args = append(args, arg)
-				if !p.lex.next() {
-					panic(perr("primary", "unexpected EOF, want ')'"))
-				}
-				if p.lex.token.typ != comma {
-					break
-				}
+				return call{token.txt, args}
 			}
-			if p.lex.token.typ != rBracket {
-				panic(perr("primary", "unexpected %q, want ')'", p.lex.token))
-			}
-			return call{token.txt, args}
-		} else {
 			p.lex.unread(1)
-			return variable(token.txt)
 		}
+		p.vars = append(p.vars, token.txt)
+		return variable(token.txt)
 	case integer, float, binLiteral, octLiteral, hexLiteral:
 		return literal(token)
 	case lBracket: // '('

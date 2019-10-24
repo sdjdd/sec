@@ -1,21 +1,24 @@
-package main
+package sec
 
 import (
 	"errors"
-	"fmt"
 	"math"
 )
 
 type Calc struct {
 	parser parser
-	Env    Env
+
+	Env Env
+
+	BeforeEval func(env Env, varNames []string)
 }
 
 type Env struct {
-	Vars  map[string]float64
+	Vars  Vars
 	Funcs Funcs
 }
 
+type Vars map[string]float64
 type Funcs map[string]interface{}
 
 var MathFuncs = Funcs{
@@ -53,8 +56,14 @@ var MathFuncs = Funcs{
 	"trunc":       math.Trunc,
 }
 
-func (e Calc) Eval(s string) (val float64, err error) {
-	expr, err := e.parser.parse(s)
+func New() (calc Calc) {
+	calc.Env.Vars = make(Vars)
+	calc.Env.Funcs = make(Funcs)
+	return
+}
+
+func (c Calc) Eval(s string) (val float64, err error) {
+	expr, err := c.parser.parse(s)
 	if err != nil {
 		return
 	}
@@ -69,7 +78,9 @@ func (e Calc) Eval(s string) (val float64, err error) {
 		}
 	}()
 
-	fmt.Println(expr)
+	if c.BeforeEval != nil {
+		c.BeforeEval(c.Env, c.parser.vars)
+	}
 
-	return expr.val(e.Env), nil
+	return expr.val(c.Env), nil
 }

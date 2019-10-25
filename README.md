@@ -82,7 +82,7 @@ sec 使用的函数有一些限制：
 - 必须返回**一个** `float64` 类型的值
 - 参数类型全部为 `float64`
 
-sec 预定义了一些 `math` 包中的符合规定的函数
+sec 预定义了一些 `math` 包中的符合规定的[函数](battery.go)
 
 ```go
 calc.Env.Funcs = sec.MathFuncs

@@ -7,10 +7,10 @@ import (
 func TestEvalFunction(t *testing.T) {
 	calc := Calc{}
 	calc.Env.Funcs = MathFuncs
-	val, err := calc.Eval(`pow(2, 10)`)
+	val, err := calc.Eval(`(111)`)
 	if err != nil {
 		t.Fatal(err)
-	} else if val != 1024 {
+	} else if val != 111 {
 		t.Fatalf("got %f, want %d", val, 1024)
 	}
 }
@@ -39,5 +39,23 @@ func TestEval(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Log("result:", val)
+	}
+}
+
+func Test_FunctionReturnVal(t *testing.T) {
+	calc := New()
+	funcs := []interface{}{
+		func() {},
+		func() int { return 0 },
+		func() (float64, float64) { return 0, 0 },
+	}
+
+	for i, f := range funcs {
+		calc.Env.Funcs["func"] = f
+		_, err := calc.Eval("func()")
+		t.Log(err)
+		if err == nil {
+			t.Fatalf("test case %d: err should not nil", i)
+		}
 	}
 }

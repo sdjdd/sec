@@ -178,7 +178,8 @@ func (p *parser) parse(script string) (exp expr, err error) {
 	exp = p.parseAdditive()
 
 	if exp == nil || p.lex.next() {
-		panic(perr("parse", "unexpected %q at %d", p.lex.token.txt, p.lex.token.col))
+		panic(perr("parse", "unexpected %q at %d",
+			p.lex.token.txt, p.lex.token.col))
 	}
 	return
 }
@@ -288,9 +289,12 @@ func (p *parser) parsePrimary() (e expr) {
 			panic(parserPanic("unexpected EOF"))
 		}
 		addStmt := p.parseAdditive()
-		if !p.lex.next() || p.lex.token.typ != rBracket {
-			msg := fmt.Sprintf("expect ')' at %d", p.lex.token.col)
-			panic(parserPanic(msg))
+		if !p.lex.next() {
+			panic(perr("primary", "unexpected EOF after %d, want expression",
+				p.lex.token.col))
+		} else if p.lex.token.typ != rBracket {
+			panic(perr("primary", "unexpected %q at %d, want ')'",
+				p.lex.token.txt, p.lex.token.col))
 		}
 		return addStmt
 	}

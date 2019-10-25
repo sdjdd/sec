@@ -79,7 +79,11 @@ func (c Calc) Eval(s string) (val float64, err error) {
 	}()
 
 	if c.BeforeEval != nil {
-		c.BeforeEval(c.Env, c.parser.vars)
+		varNames := make([]string, 0, len(c.parser.vars))
+		for name := range c.parser.vars {
+			varNames = append(varNames, name)
+		}
+		c.BeforeEval(c.Env, varNames)
 	}
 
 	return expr.val(c.Env), nil

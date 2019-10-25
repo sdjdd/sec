@@ -18,7 +18,7 @@ type parseErr struct {
 
 type parser struct {
 	lex  lexer
-	vars []string
+	vars map[string]struct{}
 }
 
 type expr interface {
@@ -156,7 +156,7 @@ func (p *parser) parse(script string) (exp expr, err error) {
 		return
 	}
 
-	p.vars = p.vars[:0]
+	p.vars = make(map[string]struct{})
 
 	defer func() {
 		switch t := recover().(type) {
@@ -279,7 +279,7 @@ func (p *parser) parsePrimary() (e expr) {
 			}
 			p.lex.unread(1)
 		}
-		p.vars = append(p.vars, token.txt)
+		p.vars[token.txt] = struct{}{}
 		return variable(token.txt)
 	case integer, float, binLiteral, octLiteral, hexLiteral:
 		return literal(token)

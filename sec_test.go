@@ -28,7 +28,7 @@ func TestEval(t *testing.T) {
 
 	scripts := []string{
 		"18111/2*pow(5,4)-90555*pow(5,3)+633885/2*pow(5,2)-472973*5+215504",
-		"gtmd(c3p)",
+		"gtmd(c3p) + c3p",
 		"1+1",
 		"0b101010",
 	}

@@ -52,7 +52,7 @@ func Test_FunctionReturnVal(t *testing.T) {
 
 	for i, f := range funcs {
 		calc.Env.Funcs["func"] = f
-		_, err := calc.Eval("func()")
+		err := calc.CheckFuncs()
 		t.Log(err)
 		if err == nil {
 			t.Fatalf("test case %d: err should not nil", i)

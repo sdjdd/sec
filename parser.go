@@ -18,7 +18,7 @@ type parseErr struct {
 
 type parser struct {
 	lex  lexer
-	vars map[string]struct{}
+	vars varSet
 }
 
 type expr interface {
@@ -104,41 +104,21 @@ func (b binary) val(env Env) float64 {
 }
 
 func (c call) val(env Env) float64 {
-	rawFunc, ok := env.Funcs[c.name]
+	function, ok := env.Funcs[c.name]
 	if !ok {
 		panic(evalPanic(fmt.Sprintf("undeclared function %q", c.name)))
 	}
 
-	ft := reflect.TypeOf(rawFunc)
-	ni, no := ft.NumIn(), ft.NumOut()
+	ftype := reflect.TypeOf(function)
 
-	if ft.Kind() != reflect.Func {
-		panic(evalPanic(fmt.Sprintf("%q is not a function", c.name)))
-	} else if no == 0 {
-		panic(evalPanic("function must return a value"))
-	} else if no > 1 {
-		panic(evalPanic("function must return only one value"))
-	} else if ft.Out(0).Kind() != reflect.Float64 {
-		panic(evalPanic("function must return a float64 value"))
+	argc := ftype.NumIn()
+	if ftype.IsVariadic() {
+		argc--
 	}
 
-	for i := 0; i < ni; i++ {
-		if ft.In(i).Kind() != reflect.Float64 {
-			if ft.IsVariadic() && i == ni-1 {
-				break
-			}
-			panic(evalPanic(fmt.Sprintf("argument %d of %q is not float64",
-				i+1, c.name)))
-		}
-	}
-
-	minArgs := ni
-	if ft.IsVariadic() {
-		minArgs--
-	}
-	if len(c.args) < minArgs {
+	if len(c.args) < argc {
 		panic(evalPanic(fmt.Sprintf("too few arguments to call %q", c.name)))
-	} else if len(c.args) > minArgs && !ft.IsVariadic() {
+	} else if len(c.args) > argc && !ftype.IsVariadic() {
 		panic(evalPanic(fmt.Sprintf("too many arguments to call %q", c.name)))
 	}
 
@@ -147,7 +127,8 @@ func (c call) val(env Env) float64 {
 		args[i] = reflect.ValueOf(arg.val(env))
 	}
 
-	return reflect.ValueOf(rawFunc).Call(args)[0].Float()
+	results := reflect.ValueOf(function).Call(args)
+	return results[0].Float()
 }
 
 func (p *parser) parse(script string) (exp expr, err error) {
@@ -156,7 +137,7 @@ func (p *parser) parse(script string) (exp expr, err error) {
 		return
 	}
 
-	p.vars = make(map[string]struct{})
+	p.vars = make(varSet)
 
 	defer func() {
 		switch t := recover().(type) {
@@ -233,7 +214,7 @@ func (p *parser) parseMultiplicative() (e expr) {
 // Unary = '+' Unary
 //       | Primary
 func (p *parser) parseUnary() (e expr) {
-	if p.lex.token.typ == operator {
+	if p.lex.token.is(operator) {
 		op := p.lex.token
 		if !p.lex.next() {
 			p.lex.unread(1)
@@ -253,7 +234,7 @@ func (p *parser) parsePrimary() (e expr) {
 	token := p.lex.token
 	switch token.typ {
 	case identifier:
-		// identifier + '(' :function call
+		// identifier + '(' : function call
 		if p.lex.next() {
 			if p.lex.token.typ == lBracket {
 				var args []expr
@@ -280,7 +261,7 @@ func (p *parser) parsePrimary() (e expr) {
 			}
 			p.lex.unread(1)
 		}
-		p.vars[token.txt] = struct{}{}
+		p.vars.add(token.txt)
 		return variable(token.txt)
 	case integer, float, binLiteral, octLiteral, hexLiteral:
 		return literal(token)

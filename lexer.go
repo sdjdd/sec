@@ -15,26 +15,33 @@ type lexer struct {
 	index  int          // read index
 }
 
-type token struct {
-	col int
-	typ int    // type
-	txt string // text
-}
-
 type lexerPanic string
 
 const (
-	identifier = iota
+	initial = iota
+	identifier
 	zero
 	integer
 	float
-	octLiteral
+
+	binLiteralPrefix
+	octLiteralPrefix
+	hexLiteralPrefix
 	binLiteral
+	octLiteral
 	hexLiteral
+
 	operator
-	lBracket
-	rBracket
-	comma
+
+	lBracket    // '('
+	rBracket    // ')'
+	comma       // ','
+	plus        // '+'
+	minus       // '-'
+	star        // '*'
+	slash       // '/'
+	doubleStar  // '**'
+	doubleSlash // '//'
 )
 
 func isAlpha(ch rune) bool {
@@ -70,28 +77,48 @@ func (t token) is(types ...int) bool {
 func (t token) String() string {
 	var typ string
 	switch t.typ {
+	case identifier:
+		typ = "identifier"
+	case zero:
+		typ = "zero"
 	case integer:
 		typ = "integer"
 	case float:
 		typ = "float"
+	case binLiteralPrefix:
+		typ = "bin-literal-prefix"
+	case octLiteralPrefix:
+		typ = "oct-literal-prefix"
+	case hexLiteralPrefix:
+		typ = "hex-literal-prefix"
 	case binLiteral:
 		typ = "bin-literal"
 	case octLiteral:
 		typ = "oct-literal"
 	case hexLiteral:
 		typ = "hex-literal"
-	case identifier:
-		typ = "identifier"
-	case operator:
-		typ = "operator"
 	case lBracket:
 		typ = "left-bracket"
 	case rBracket:
 		typ = "right-bracket"
 	case comma:
 		typ = "comma"
+	case plus:
+		typ = "plus"
+	case minus:
+		typ = "minus"
+	case star:
+		typ = "star"
+	case slash:
+		typ = "slash"
+	case doubleStar:
+		typ = "double-star"
+	case doubleSlash:
+		typ = "double-slash"
 	}
-	return fmt.Sprintf("<%d %s %q>", t.col, typ, t.txt)
+
+	//lineInfo := fmt.Sprintf("[%d,%d]", t.row, t.col)
+	return fmt.Sprintf("<%-14s %q>", typ, t.txt)
 }
 
 func (l *lexer) init(ch rune) {

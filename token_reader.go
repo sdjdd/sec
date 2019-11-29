@@ -6,15 +6,21 @@ import (
 	"strings"
 )
 
-type token struct {
-	// token's begin column
+type srcInfo struct {
 	row, col int
+}
+
+type token struct {
+	srcInfo
 
 	// token type
 	typ int
 
 	// token text
 	txt string
+
+	afterBlank   bool
+	afterNewLine bool
 }
 
 type tokenReader struct {
@@ -22,7 +28,7 @@ type tokenReader struct {
 	src strings.Reader
 
 	// store current token's text
-	tbuf strings.Builder
+	text strings.Builder
 
 	// readed tokens
 	tokens []token
@@ -31,23 +37,99 @@ type tokenReader struct {
 	readPos int
 
 	// current row and column
-	row, col int
+	srcInfo
 
 	lastRowCols int
 }
 
-func newTokenReader(src string) *tokenReader {
-	t := new(tokenReader)
-	t.row = 1
-	t.col = 1
-	t.load(src)
-	return t
+const (
+	initial = iota
+	identifier
+	zero
+	integer
+	float
+
+	binLiteralPrefix
+	octLiteralPrefix
+	hexLiteralPrefix
+	binLiteral
+	octLiteral
+	hexLiteral
+
+	operator
+
+	lBracket    // '('
+	rBracket    // ')'
+	comma       // ','
+	plus        // '+'
+	minus       // '-'
+	star        // '*'
+	slash       // '/'
+	doubleStar  // '**'
+	doubleSlash // '//'
+)
+
+func isAlpha(ch rune) bool {
+	return ch >= 'a' && ch <= 'z' || ch >= 'A' && ch <= 'Z'
+}
+
+func isNumber(ch rune) bool {
+	return ch >= '0' && ch <= '9'
+}
+
+func isBlank(ch rune) bool {
+	return ch == ' ' || ch == '\t'
+}
+func (t token) String() string {
+	var typ string
+	switch t.typ {
+	case identifier:
+		typ = "identifier"
+	case zero:
+		typ = "zero"
+	case integer:
+		typ = "integer"
+	case float:
+		typ = "float"
+	case binLiteralPrefix:
+		typ = "bin-literal-prefix"
+	case octLiteralPrefix:
+		typ = "oct-literal-prefix"
+	case hexLiteralPrefix:
+		typ = "hex-literal-prefix"
+	case binLiteral:
+		typ = "bin-literal"
+	case octLiteral:
+		typ = "oct-literal"
+	case hexLiteral:
+		typ = "hex-literal"
+	case lBracket:
+		typ = "left-bracket"
+	case rBracket:
+		typ = "right-bracket"
+	case comma:
+		typ = "comma"
+	case plus:
+		typ = "plus"
+	case minus:
+		typ = "minus"
+	case star:
+		typ = "star"
+	case slash:
+		typ = "slash"
+	case doubleStar:
+		typ = "double-star"
+	case doubleSlash:
+		typ = "double-slash"
+	}
+
+	return fmt.Sprintf("<%-14s %q>", typ, t.txt)
 }
 
 func (t *tokenReader) load(src string) {
-	src = strings.ReplaceAll(src, "\r\n", "\n")
 	t.src.Reset(src)
 	t.tokens = []token{}
+	t.row, t.col = 1, 1
 }
 
 func (t *tokenReader) srcUnread() {
@@ -72,6 +154,7 @@ func (t *tokenReader) read() (tk token, err error) {
 		return
 	}
 
+	var afterBlank, afterNewLine bool
 readLoop:
 	for {
 		ch, _, er := t.src.ReadRune()
@@ -83,57 +166,67 @@ readLoop:
 		switch tk.typ {
 		case initial:
 			if isBlank(ch) {
-				// do nothing
+				afterBlank = true
+			} else if ch == '\r' {
+				nch, _, er := t.src.ReadRune()
+				if er != nil || nch != '\n' {
+					tk.row, tk.col = t.row, t.col-1 // update tk'a srcInfo
+					err = tk.errorf(`Unexpected '\r'`)
+					return
+				}
+				t.src.UnreadRune()
 			} else if ch == '\n' {
+				afterNewLine = true
 				t.row++
-				t.col, t.lastRowCols = 0, t.col
+				t.col, t.lastRowCols = 1, t.col
 			} else if isAlpha(ch) || ch == '_' {
 				tk.typ = identifier
-				t.tbuf.WriteRune(ch)
+				t.text.WriteRune(ch)
 			} else if isNumber(ch) {
 				if ch == '0' {
 					tk.typ = zero
 				} else {
 					tk.typ = integer
 				}
-				t.tbuf.WriteRune(ch)
+				t.text.WriteRune(ch)
 			} else {
 				switch ch {
 				case '+':
 					tk.typ = plus
-					t.tbuf.WriteRune(ch)
+					t.text.WriteRune(ch)
 					break readLoop
 				case '-':
 					tk.typ = minus
-					t.tbuf.WriteRune(ch)
+					t.text.WriteRune(ch)
 					break readLoop
 				case '*':
 					tk.typ = star
-					t.tbuf.WriteRune(ch)
+					t.text.WriteRune(ch)
 				case '/':
 					tk.typ = slash
-					t.tbuf.WriteRune(ch)
+					t.text.WriteRune(ch)
 				case '(':
 					tk.typ = lBracket
-					t.tbuf.WriteRune(ch)
+					t.text.WriteRune(ch)
 					break readLoop
 				case ')':
 					tk.typ = rBracket
-					t.tbuf.WriteRune(ch)
+					t.text.WriteRune(ch)
 					break readLoop
 				case ',':
 					tk.typ = comma
-					t.tbuf.WriteRune(ch)
+					t.text.WriteRune(ch)
 					break readLoop
 				default:
-					err = fmt.Errorf("[%d, %d]: invalid character %q", t.row, t.col, ch)
+					tk.row, tk.col = t.row, t.col-1
+					err = tk.errorf("invalid character %q", ch)
 					return
 				}
 			}
 		case star:
 			if ch == '*' {
 				tk.typ = doubleStar
-				t.tbuf.WriteRune(ch)
+				t.text.WriteRune(ch)
 			} else {
 				t.srcUnread()
 			}
@@ -141,14 +234,14 @@ readLoop:
 		case slash:
 			if ch == '/' {
 				tk.typ = doubleSlash
-				t.tbuf.WriteRune(ch)
+				t.text.WriteRune(ch)
 			} else {
 				t.srcUnread()
 			}
 			break readLoop
 		case identifier:
 			if isAlpha(ch) || isNumber(ch) || ch == '_' {
-				t.tbuf.WriteRune(ch)
+				t.text.WriteRune(ch)
 			} else {
 				t.srcUnread()
 				break readLoop
@@ -156,16 +249,16 @@ readLoop:
 		case zero:
 			if isNumber(ch) {
 				tk.typ = octLiteral
-				t.tbuf.WriteRune(ch)
+				t.text.WriteRune(ch)
 			} else if ch == 'b' || ch == 'B' {
 				tk.typ = binLiteralPrefix
-				t.tbuf.WriteRune(ch)
+				t.text.WriteRune(ch)
 			} else if ch == 'o' || ch == 'O' {
 				tk.typ = octLiteralPrefix
-				t.tbuf.WriteRune(ch)
+				t.text.WriteRune(ch)
 			} else if ch == 'x' || ch == 'X' {
 				tk.typ = hexLiteralPrefix
-				t.tbuf.WriteRune(ch)
+				t.text.WriteRune(ch)
 			} else {
 				t.srcUnread()
 				break readLoop
@@ -173,7 +266,7 @@ readLoop:
 		case binLiteralPrefix:
 			if ch == '0' || ch == '1' {
 				tk.typ = binLiteral
-				t.tbuf.WriteRune(ch)
+				t.text.WriteRune(ch)
 			} else {
 				t.srcUnread()
 				break readLoop
@@ -181,7 +274,7 @@ readLoop:
 		case octLiteralPrefix:
 			if ch >= '0' && ch <= '7' {
 				tk.typ = octLiteral
-				t.tbuf.WriteRune(ch)
+				t.text.WriteRune(ch)
 			} else {
 				t.srcUnread()
 				break readLoop
@@ -189,45 +282,45 @@ readLoop:
 		case hexLiteralPrefix:
 			if isNumber(ch) || ch >= 'a' && ch <= 'f' || ch >= 'A' && ch <= 'F' {
 				tk.typ = hexLiteral
-				t.tbuf.WriteRune(ch)
+				t.text.WriteRune(ch)
 			} else {
 				t.srcUnread()
 				break readLoop
 			}
 		case binLiteral:
 			if ch == '0' || ch == '1' {
-				t.tbuf.WriteRune(ch)
+				t.text.WriteRune(ch)
 			} else {
 				t.srcUnread()
 				break readLoop
 			}
 		case octLiteral:
 			if ch >= '0' && ch <= '7' {
-				t.tbuf.WriteRune(ch)
+				t.text.WriteRune(ch)
 			} else {
 				t.srcUnread()
 				break readLoop
 			}
 		case hexLiteral:
 			if isNumber(ch) || ch >= 'a' && ch <= 'f' || ch >= 'A' && ch <= 'F' {
-				t.tbuf.WriteRune(ch)
+				t.text.WriteRune(ch)
 			} else {
 				t.srcUnread()
 				break readLoop
 			}
 		case integer:
 			if isNumber(ch) {
-				t.tbuf.WriteRune(ch)
+				t.text.WriteRune(ch)
 			} else if ch == '.' {
 				tk.typ = float
-				t.tbuf.WriteRune(ch)
+				t.text.WriteRune(ch)
 			} else {
 				t.srcUnread()
 				break readLoop
 			}
 		case float:
 			if isNumber(ch) {
-				t.tbuf.WriteRune(ch)
+				t.text.WriteRune(ch)
 			} else {
 				t.srcUnread()
 				break readLoop
@@ -236,14 +329,49 @@ readLoop:
 			panic("Not handling all possible cases")
 		}
 	}
+
 	tk.row = t.row
-	tk.col = t.col - t.tbuf.Len()
-	tk.txt = t.tbuf.String()
+	tk.col = t.col - t.text.Len()
+	tk.txt = t.text.String()
+	tk.afterBlank, tk.afterNewLine = afterBlank, afterNewLine
 
 	t.tokens = append(t.tokens, tk)
 	t.readPos++
 
-	t.tbuf.Reset()
+	t.text.Reset()
+
+	switch tk.typ {
+	case zero:
+		tk.typ = integer
+	case binLiteralPrefix, octLiteralPrefix, hexLiteralPrefix:
+		err = explainLiteralPrefixError(tk, t)
+	}
+
+	return
+}
+
+func explainLiteralPrefixError(tk token, r *tokenReader) (err error) {
+	var ltype string
+	switch tk.typ {
+	case binLiteralPrefix:
+		ltype = "binary"
+	case octLiteralPrefix:
+		ltype = "octal"
+	case hexLiteralPrefix:
+		ltype = "hexadecimal"
+	default:
+		return nil
+	}
+	err = tk.errorf(ltype + " literal has no digits")
+
+	next, er := r.read()
+	if er == nil && !next.afterBlank && !next.afterNewLine {
+		if tk.typ == hexLiteralPrefix {
+			err = next.errorf("Unexpected %q", next.txt)
+		} else if next.typ == integer {
+			err = next.errorf("invalid digit %q in binary literal", next.txt[0])
+		}
+	}
 
 	return
 }

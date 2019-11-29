@@ -1,228 +1,101 @@
 package sec
 
 import (
-	"errors"
 	"fmt"
-	"math"
-	"reflect"
-	"strconv"
+	"io"
 )
 
-type parserPanic string
-type evalPanic string
-
-type parseErr struct {
-	process string
-	message string
-}
+type parseErr error
 
 type parser struct {
-	lex  lexer
-	vars varSet
+	tokenReader *tokenReader
+
+	// current token
+	token token
 }
 
-type expr interface {
-	val(Env) float64
+type binary2 struct {
+	op          int
+	left, right Expr
 }
 
-type unary struct {
-	op   string
-	expr expr
-}
-
-type binary struct {
-	operator string
-	l, r     expr
-}
-
-type variable string
-
-type literal token
-
-type call struct {
-	name string
-	args []expr
-}
-
-func perr(process, layout string, a ...interface{}) parseErr {
-	return parseErr{
-		process: process,
-		message: fmt.Sprintf(layout, a...),
+func (p *parser) next() {
+	var err error
+	p.token, err = p.tokenReader.read()
+	if err != nil && err != io.EOF {
+		panic(parseErr(err))
 	}
 }
 
-func (e parseErr) Error() string { return e.message }
-
-func (v variable) val(env Env) float64 {
-	val, ok := env.Vars[string(v)]
-	if !ok {
-		panic(evalPanic(fmt.Sprintf("undeclared variable %q", v)))
+func (p *parser) parse(src string) (ast Expr, err error) {
+	// lazy load
+	if p.tokenReader == nil {
+		p.tokenReader = new(tokenReader)
 	}
-	return val
-}
-
-func (l literal) val(_ Env) (v float64) {
-	switch l.typ {
-	case integer, float:
-		v, _ = strconv.ParseFloat(l.txt, 64)
-	case binLiteral, octLiteral, hexLiteral:
-		t, _ := strconv.ParseInt(l.txt, 0, 64)
-		v = float64(t)
-	default:
-		panic(fmt.Sprintf("unsupported token %s", token(l)))
-	}
-	return
-}
-
-func (u unary) val(env Env) float64 {
-	switch u.op {
-	case "+":
-		return +u.expr.val(env)
-	case "-":
-		return -u.expr.val(env)
-	}
-
-	panic(evalPanic(fmt.Sprintf("unsupported unary operator %q", u.op)))
-}
-
-func (b binary) val(env Env) float64 {
-	l, r := b.l.val(env), b.r.val(env)
-	switch b.operator {
-	case "+":
-		return l + r
-	case "-":
-		return l - r
-	case "*":
-		return l * r
-	case "/":
-		return l / r
-	case "%":
-		return math.Mod(l, r)
-	}
-
-	panic(fmt.Sprintf("the operator %q is not implemented", b.operator))
-}
-
-func (c call) val(env Env) float64 {
-	function, ok := env.Funcs[c.name]
-	if !ok {
-		panic(evalPanic(fmt.Sprintf("undeclared function %q", c.name)))
-	}
-
-	ftype := reflect.TypeOf(function)
-
-	argc := ftype.NumIn()
-	if ftype.IsVariadic() {
-		argc--
-	}
-
-	if len(c.args) < argc {
-		panic(evalPanic(fmt.Sprintf("too few arguments to call %q", c.name)))
-	} else if len(c.args) > argc && !ftype.IsVariadic() {
-		panic(evalPanic(fmt.Sprintf("too many arguments to call %q", c.name)))
-	}
-
-	args := make([]reflect.Value, len(c.args))
-	for i, arg := range c.args {
-		args[i] = reflect.ValueOf(arg.val(env))
-	}
-
-	results := reflect.ValueOf(function).Call(args)
-	return results[0].Float()
-}
-
-func (p *parser) parse(script string) (exp expr, err error) {
-	err = p.lex.tokenize(script)
-	if err != nil {
-		return
-	}
-
-	p.vars = make(varSet)
 
 	defer func() {
-		switch t := recover().(type) {
-		case nil: // do nothing
-		case parserPanic:
-			err = errors.New(string(t))
+		switch er := recover().(type) {
+		case nil:
 		case parseErr:
-			err = fmt.Errorf("process: %s, message: %s", t.process, t.message)
+			err = er
 		default:
-			panic(t)
+			panic(er)
 		}
 	}()
 
-	if !p.lex.next() {
-		err = errors.New("empty input")
-		return
+	p.tokenReader.load(src)
+	p.next()
+	ast = p.parseAdditive()
+
+	if p.token.typ != initial {
+		err = p.token.errorf("Unexpected %q", p.token.txt)
 	}
 
-	exp = p.parseAdditive()
-
-	if exp == nil || p.lex.next() {
-		panic(perr("parse", "unexpected %q at %d",
-			p.lex.token.txt, p.lex.token.col))
-	}
 	return
 }
 
 // Additive = Multiplicative ('+' Multiplicative)*
-func (p *parser) parseAdditive() (e expr) {
-	if e = p.parseMultiplicative(); e == nil {
-		return
-	}
+func (p *parser) parseAdditive() Expr {
+	left := p.parseMultiplicative()
 
-	for p.lex.next() {
-		op := p.lex.token
-		if !op.eq("+", "-") || !p.lex.next() {
-			p.lex.unread(1)
+	for {
+		if p.token.typ != plus && p.token.typ != minus {
 			break
 		}
+		op := p.token.txt
+		p.next() // consume operator
 		right := p.parseMultiplicative()
-		if right == nil {
-			p.lex.unread(2)
-			break
-		}
-		e = binary{op.txt, e, right}
+		left = binary{op, left, right}
 	}
 
-	return
+	return left
 }
 
 // Multiplicative = Unary ('*' Unary)*
-func (p *parser) parseMultiplicative() (e expr) {
-	if e = p.parseUnary(); e == nil {
-		return
-	}
+func (p *parser) parseMultiplicative() Expr {
+	left := p.parseUnary()
 
-	for p.lex.next() {
-		op := p.lex.token
-		if !op.eq("*", "/", "%") || !p.lex.next() {
-			p.lex.unread(1)
+	for {
+		if p.token.typ != star && p.token.typ != slash {
 			break
 		}
+		op := p.token.txt
+		p.next() // consume operator
 		right := p.parseUnary()
-		if right == nil {
-			p.lex.unread(2)
-			break
-		}
-		e = binary{op.txt, e, right}
+		left = binary{op, left, right}
 	}
 
-	return
+	return left
 }
 
 // Unary = '+' Unary
 //       | Primary
-func (p *parser) parseUnary() (e expr) {
-	if p.lex.token.is(operator) {
-		op := p.lex.token
-		if !p.lex.next() {
-			p.lex.unread(1)
-			return nil
-		}
-		return unary{op.txt, p.parseUnary()}
+func (p *parser) parseUnary() Expr {
+	if p.token.typ == plus || p.token.typ == minus {
+		op := p.token.txt
+		p.next() // consume operator
+		return unary{op, p.parseUnary()}
 	}
-
 	return p.parsePrimary()
 }
 
@@ -230,55 +103,45 @@ func (p *parser) parseUnary() (e expr) {
 //         | number
 //         | identifier '(' Additive ')'
 //         | '(' Additive ')'
-func (p *parser) parsePrimary() (e expr) {
-	token := p.lex.token
-	switch token.typ {
+func (p *parser) parsePrimary() Expr {
+	switch p.token.typ {
+	case initial:
+		panic(parseErr(p.token.errorf("Unexpected EOF")))
 	case identifier:
-		// identifier + '(' : function call
-		if p.lex.next() {
-			if p.lex.token.typ == lBracket {
-				var args []expr
-				for {
-					if !p.lex.next() {
-						panic(perr("primary", "unexpected EOF, want ')'"))
-					}
-					arg := p.parseAdditive()
-					if arg == nil {
-						break
-					}
-					args = append(args, arg)
-					if !p.lex.next() {
-						panic(perr("primary", "unexpected EOF, want ')'"))
-					}
-					if p.lex.token.typ != comma {
-						break
-					}
+		id := p.token
+		p.next() // consume identifier
+		if p.token.typ != lBracket {
+			return variable(id)
+		}
+		p.next() // consume '('
+		var args []Expr
+		if p.token.typ != rBracket {
+			for {
+				args = append(args, p.parseAdditive())
+				if p.token.typ != comma {
+					break
 				}
-				if p.lex.token.typ != rBracket {
-					panic(perr("primary", "unexpected %q, want ')'", p.lex.token))
-				}
-				return call{token.txt, args}
+				p.next() // consume ','
 			}
-			p.lex.unread(1)
+			if p.token.typ != rBracket {
+				panic(fmt.Sprintf("want ')', got %q", p.token.txt))
+			}
 		}
-		p.vars.add(token.txt)
-		return variable(token.txt)
+		p.next() // consume ')'
+		return call{id, args}
 	case integer, float, binLiteral, octLiteral, hexLiteral:
+		token := p.token
+		p.next()
 		return literal(token)
-	case lBracket: // '('
-		if !p.lex.next() {
-			panic(parserPanic("unexpected EOF"))
+	case lBracket:
+		p.next() // consume '('
+		e := p.parseAdditive()
+		if p.token.typ != rBracket {
+			panic(fmt.Sprintf("want ')', got %q", p.token.txt))
 		}
-		addStmt := p.parseAdditive()
-		if !p.lex.next() {
-			panic(perr("primary", "unexpected EOF after %d, want expression",
-				p.lex.token.col))
-		} else if p.lex.token.typ != rBracket {
-			panic(perr("primary", "unexpected %q at %d, want ')'",
-				p.lex.token.txt, p.lex.token.col))
-		}
-		return addStmt
+		p.next() // consume ')'
+		return e
 	}
 
-	return nil
+	panic("Unhandling case")
 }

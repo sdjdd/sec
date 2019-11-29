@@ -20,6 +20,7 @@ type Env struct {
 }
 
 type Vars map[string]float64
+
 type Funcs map[string]interface{}
 
 func New() (calc Calc) {
@@ -41,18 +42,17 @@ func (c Calc) Eval(s string) (val float64, err error) {
 	defer func() {
 		switch t := recover().(type) {
 		case nil: // do nothing
-		case evalPanic:
-			err = errors.New(string(t))
 		default:
 			panic(t)
 		}
 	}()
 
-	if c.BeforeEval != nil {
-		c.BeforeEval(c.Env, c.parser.vars.names())
-	}
+	// if c.BeforeEval != nil {
+	// 	c.BeforeEval(c.Env, c.parser.vars.names())
+	// }
 
-	return expr.val(c.Env), nil
+	val, err = expr.Val(c.Env)
+	return
 }
 
 // CheckFuncs returns a non-nil error when at least one illegal function in

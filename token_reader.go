@@ -56,8 +56,6 @@ const (
 	octLiteral
 	hexLiteral
 
-	operator
-
 	lBracket    // '('
 	rBracket    // ')'
 	comma       // ','
@@ -80,6 +78,7 @@ func isNumber(ch rune) bool {
 func isBlank(ch rune) bool {
 	return ch == ' ' || ch == '\t'
 }
+
 func (t token) String() string {
 	var typ string
 	switch t.typ {
@@ -171,7 +170,7 @@ readLoop:
 				nch, _, er := t.src.ReadRune()
 				if er != nil || nch != '\n' {
 					tk.row, tk.col = t.row, t.col-1 // update tk'a srcInfo
-					err = tk.errorf(`Unexpected '\r'`)
+					err = tk.errorf(`unexpected '\r'`)
 					return
 				}
 				t.src.UnreadRune()
@@ -367,7 +366,7 @@ func explainLiteralPrefixError(tk token, r *tokenReader) (err error) {
 	next, er := r.read()
 	if er == nil && !next.afterBlank && !next.afterNewLine {
 		if tk.typ == hexLiteralPrefix {
-			err = next.errorf("Unexpected %q", next.txt)
+			err = next.errorf("unexpected %q", next.txt)
 		} else if next.typ == integer {
 			err = next.errorf("invalid digit %q in binary literal", next.txt[0])
 		}

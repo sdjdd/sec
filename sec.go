@@ -10,8 +10,6 @@ type Calc struct {
 	parser parser
 
 	Env Env
-
-	BeforeEval func(env Env, varNames []string)
 }
 
 type Env struct {
@@ -19,9 +17,10 @@ type Env struct {
 	Funcs Funcs
 }
 
-type Vars map[string]float64
-
-type Funcs map[string]interface{}
+type (
+	Vars  map[string]float64
+	Funcs map[string]interface{}
+)
 
 func New() (calc Calc) {
 	calc.Env.Vars = make(Vars)
@@ -38,18 +37,6 @@ func (c Calc) Eval(s string) (val float64, err error) {
 	if err = c.CheckFuncs(); err != nil {
 		return
 	}
-
-	defer func() {
-		switch t := recover().(type) {
-		case nil: // do nothing
-		default:
-			panic(t)
-		}
-	}()
-
-	// if c.BeforeEval != nil {
-	// 	c.BeforeEval(c.Env, c.parser.vars.names())
-	// }
 
 	val, err = expr.Val(c.Env)
 	return

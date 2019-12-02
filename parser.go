@@ -1,7 +1,6 @@
 package sec
 
 import (
-	"fmt"
 	"io"
 )
 
@@ -12,11 +11,6 @@ type parser struct {
 
 	// current token
 	token token
-}
-
-type binary2 struct {
-	op          int
-	left, right Expr
 }
 
 func (p *parser) next() {
@@ -92,7 +86,7 @@ func (p *parser) parseMultiplicative() Expr {
 //       | Primary
 func (p *parser) parseUnary() Expr {
 	if p.token.typ == plus || p.token.typ == minus {
-		op := p.token.txt
+		op := p.token
 		p.next() // consume operator
 		return unary{op, p.parseUnary()}
 	}
@@ -106,7 +100,7 @@ func (p *parser) parseUnary() Expr {
 func (p *parser) parsePrimary() Expr {
 	switch p.token.typ {
 	case initial:
-		panic(parseErr(p.token.errorf("Unexpected EOF")))
+		panic(parseErr(p.token.errorf("unexpected EOF")))
 	case identifier:
 		id := p.token
 		p.next() // consume identifier
@@ -124,7 +118,7 @@ func (p *parser) parsePrimary() Expr {
 				p.next() // consume ','
 			}
 			if p.token.typ != rBracket {
-				panic(fmt.Sprintf("want ')', got %q", p.token.txt))
+				panic(parseErr(p.token.errorf("want ')', got %q", p.token.txt[0])))
 			}
 		}
 		p.next() // consume ')'
@@ -137,11 +131,11 @@ func (p *parser) parsePrimary() Expr {
 		p.next() // consume '('
 		e := p.parseAdditive()
 		if p.token.typ != rBracket {
-			panic(fmt.Sprintf("want ')', got %q", p.token.txt))
+			panic(parseErr(p.token.errorf("want ')', got %q", p.token.txt)))
 		}
 		p.next() // consume ')'
 		return e
+	default:
+		panic(parseErr(p.token.errorf("unexpected %q", p.token.txt)))
 	}
-
-	panic("Unhandling case")
 }

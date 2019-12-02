@@ -13,13 +13,13 @@ type Expr interface {
 
 type (
 	unary struct {
-		op   string
+		op   token
 		expr Expr
 	}
 
 	binary struct {
-		operator string
-		l, r     Expr
+		op   string
+		l, r Expr
 	}
 
 	variable token
@@ -65,13 +65,13 @@ func (l literal) Val(_ Env) (val float64, err error) {
 }
 
 func (u unary) Val(env Env) (val float64, err error) {
-	if val, err = u.Val(env); err != nil {
+	if val, err = u.expr.Val(env); err != nil {
 		return
 	}
-	switch u.op {
-	case "+":
+	switch u.op.typ {
+	case plus:
 		val = +val
-	case "-":
+	case minus:
 		val = -val
 	}
 	return
@@ -86,7 +86,7 @@ func (b binary) Val(env Env) (val float64, err error) {
 		return
 	}
 
-	switch b.operator {
+	switch b.op {
 	case "+":
 		val = left + right
 	case "-":

@@ -18,7 +18,7 @@ type (
 	}
 
 	binary struct {
-		op   string
+		op   token
 		l, r Expr
 	}
 
@@ -86,29 +86,33 @@ func (b binary) Val(env Env) (val float64, err error) {
 		return
 	}
 
-	switch b.op {
-	case "+":
+	switch b.op.typ {
+	case plus:
 		val = left + right
-	case "-":
+	case minus:
 		val = left - right
-	case "*":
+	case star:
 		val = left * right
-	case "/":
+	case slash:
 		val = left / right
-	case "%":
+	case doubleSlash:
+		val = math.Floor(left / right)
+	case percent:
 		val = math.Mod(left, right)
+	case doubleStar:
+		val = math.Pow(left, right)
 	}
 	return
 }
 
 func (c call) Val(env Env) (val float64, err error) {
-	function, ok := env.Funcs[c.txt]
+	fun, ok := env.Funcs[c.txt]
 	if !ok {
 		err = c.errorf("Undeclared function %q", c.txt)
 		return
 	}
 
-	ftype := reflect.TypeOf(function)
+	ftype := reflect.TypeOf(fun)
 
 	argc := ftype.NumIn()
 	if ftype.IsVariadic() {
@@ -131,7 +135,7 @@ func (c call) Val(env Env) (val float64, err error) {
 		args[i] = reflect.ValueOf(val)
 	}
 
-	results := reflect.ValueOf(function).Call(args)
+	results := reflect.ValueOf(fun).Call(args)
 	val = results[0].Float()
 
 	return

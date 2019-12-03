@@ -30,12 +30,6 @@ type tokenReader struct {
 	// store current token's text
 	text strings.Builder
 
-	// readed tokens
-	tokens []token
-
-	// read position
-	readPos int
-
 	// current row and column
 	srcInfo
 
@@ -49,12 +43,12 @@ const (
 	integer
 	float
 
-	binLiteralPrefix
-	octLiteralPrefix
-	hexLiteralPrefix
-	binLiteral
-	octLiteral
-	hexLiteral
+	binLiteralPrefix // 0[bB]
+	octLiteralPrefix // 0[oO]
+	hexLiteralPrefix // 0[xX]
+	binLiteral       // 0[bB][01]+
+	octLiteral       // 0[oO]?[0-7]+
+	hexLiteral       // 0[xX][0-9a-fA-F]+
 
 	lBracket    // '('
 	rBracket    // ')'
@@ -63,6 +57,7 @@ const (
 	minus       // '-'
 	star        // '*'
 	slash       // '/'
+	percent     // '%'
 	doubleStar  // '**'
 	doubleSlash // '//'
 )
@@ -79,55 +74,61 @@ func isBlank(ch rune) bool {
 	return ch == ' ' || ch == '\t'
 }
 
-func (t token) String() string {
-	var typ string
+func (s srcInfo) String() string {
+	return fmt.Sprintf("[%d, %d]", s.row, s.col)
+}
+
+func (t token) wrapErr(err error) error { return tokenErr{t.srcInfo, err} }
+
+func (t token) String() (str string) {
 	switch t.typ {
 	case identifier:
-		typ = "identifier"
+		str = "identifier"
 	case zero:
-		typ = "zero"
+		str = "zero"
 	case integer:
-		typ = "integer"
+		str = "integer"
 	case float:
-		typ = "float"
+		str = "float"
 	case binLiteralPrefix:
-		typ = "bin-literal-prefix"
+		str = "bin-literal-prefix"
 	case octLiteralPrefix:
-		typ = "oct-literal-prefix"
+		str = "oct-literal-prefix"
 	case hexLiteralPrefix:
-		typ = "hex-literal-prefix"
+		str = "hex-literal-prefix"
 	case binLiteral:
-		typ = "bin-literal"
+		str = "bin-literal"
 	case octLiteral:
-		typ = "oct-literal"
+		str = "oct-literal"
 	case hexLiteral:
-		typ = "hex-literal"
+		str = "hex-literal"
 	case lBracket:
-		typ = "left-bracket"
+		str = "left-bracket"
 	case rBracket:
-		typ = "right-bracket"
+		str = "right-bracket"
 	case comma:
-		typ = "comma"
+		str = "comma"
 	case plus:
-		typ = "plus"
+		str = "plus"
 	case minus:
-		typ = "minus"
+		str = "minus"
 	case star:
-		typ = "star"
+		str = "star"
 	case slash:
-		typ = "slash"
+		str = "slash"
 	case doubleStar:
-		typ = "double-star"
+		str = "double-star"
 	case doubleSlash:
-		typ = "double-slash"
+		str = "double-slash"
+	default:
+		str = "unknown"
 	}
 
-	return fmt.Sprintf("<%-14s %q>", typ, t.txt)
+	return
 }
 
 func (t *tokenReader) load(src string) {
 	t.src.Reset(src)
-	t.tokens = []token{}
 	t.row, t.col = 1, 1
 }
 
@@ -142,18 +143,13 @@ func (t *tokenReader) srcUnread() {
 }
 
 func (t *tokenReader) read() (tk token, err error) {
-	if t.readPos < len(t.tokens) {
-		tk = t.tokens[t.readPos]
-		t.readPos++
-		return
-	}
+	tk.row, tk.col = t.row, t.col
 
 	if t.src.Len() == 0 {
 		err = io.EOF
 		return
 	}
 
-	var afterBlank, afterNewLine bool
 readLoop:
 	for {
 		ch, _, er := t.src.ReadRune()
@@ -165,19 +161,20 @@ readLoop:
 		switch tk.typ {
 		case initial:
 			if isBlank(ch) {
-				afterBlank = true
+				tk.afterBlank = true
+				tk.col++
 			} else if ch == '\r' {
-				nch, _, er := t.src.ReadRune()
-				if er != nil || nch != '\n' {
-					tk.row, tk.col = t.row, t.col-1 // update tk'a srcInfo
-					err = tk.errorf(`unexpected '\r'`)
+				ch, _, er := t.src.ReadRune()
+				if er != nil || ch != '\n' {
+					err = tk.wrapErr(errUnexpected('\r'))
 					return
 				}
 				t.src.UnreadRune()
 			} else if ch == '\n' {
-				afterNewLine = true
-				t.row++
-				t.col, t.lastRowCols = 1, t.col
+				tk.afterNewLine = true
+				t.lastRowCols = t.col
+				t.row, t.col = t.row+1, 1
+				tk.row, tk.col = t.row, t.col
 			} else if isAlpha(ch) || ch == '_' {
 				tk.typ = identifier
 				t.text.WriteRune(ch)
@@ -189,36 +186,32 @@ readLoop:
 				}
 				t.text.WriteRune(ch)
 			} else {
+				t.text.WriteRune(ch)
 				switch ch {
 				case '+':
 					tk.typ = plus
-					t.text.WriteRune(ch)
 					break readLoop
 				case '-':
 					tk.typ = minus
-					t.text.WriteRune(ch)
 					break readLoop
 				case '*':
 					tk.typ = star
-					t.text.WriteRune(ch)
 				case '/':
 					tk.typ = slash
-					t.text.WriteRune(ch)
+				case '%':
+					tk.typ = percent
+					break readLoop
 				case '(':
 					tk.typ = lBracket
-					t.text.WriteRune(ch)
 					break readLoop
 				case ')':
 					tk.typ = rBracket
-					t.text.WriteRune(ch)
 					break readLoop
 				case ',':
 					tk.typ = comma
-					t.text.WriteRune(ch)
 					break readLoop
 				default:
-					tk.row, tk.col = t.row, t.col-1
-					err = tk.errorf("invalid character %q", ch)
+					err = tk.wrapErr(errUnexpected(ch))
 					return
 				}
 			}
@@ -248,19 +241,21 @@ readLoop:
 		case zero:
 			if isNumber(ch) {
 				tk.typ = octLiteral
-				t.text.WriteRune(ch)
-			} else if ch == 'b' || ch == 'B' {
-				tk.typ = binLiteralPrefix
-				t.text.WriteRune(ch)
-			} else if ch == 'o' || ch == 'O' {
-				tk.typ = octLiteralPrefix
-				t.text.WriteRune(ch)
-			} else if ch == 'x' || ch == 'X' {
-				tk.typ = hexLiteralPrefix
-				t.text.WriteRune(ch)
 			} else {
-				t.srcUnread()
-				break readLoop
+				switch ch {
+				case '.':
+					tk.typ = float
+				case 'b', 'B':
+					tk.typ = binLiteralPrefix
+				case 'o', 'O':
+					tk.typ = octLiteralPrefix
+				case 'x', 'X':
+					tk.typ = hexLiteralPrefix
+				default:
+					t.srcUnread()
+					break readLoop
+				}
+				t.text.WriteRune(ch)
 			}
 		case binLiteralPrefix:
 			if ch == '0' || ch == '1' {
@@ -329,13 +324,7 @@ readLoop:
 		}
 	}
 
-	tk.row = t.row
-	tk.col = t.col - t.text.Len()
 	tk.txt = t.text.String()
-	tk.afterBlank, tk.afterNewLine = afterBlank, afterNewLine
-
-	t.tokens = append(t.tokens, tk)
-	t.readPos++
 
 	t.text.Reset()
 
@@ -350,25 +339,25 @@ readLoop:
 }
 
 func explainLiteralPrefixError(tk token, r *tokenReader) (err error) {
-	var ltype string
+	var n int
 	switch tk.typ {
 	case binLiteralPrefix:
-		ltype = "binary"
+		n = 2
 	case octLiteralPrefix:
-		ltype = "octal"
+		n = 8
 	case hexLiteralPrefix:
-		ltype = "hexadecimal"
+		n = 16
 	default:
 		return nil
 	}
-	err = tk.errorf(ltype + " literal has no digits")
+	err = tk.wrapErr(errLiteralHasNoDigits(n))
 
 	next, er := r.read()
 	if er == nil && !next.afterBlank && !next.afterNewLine {
 		if tk.typ == hexLiteralPrefix {
-			err = next.errorf("unexpected %q", next.txt)
+			err = next.wrapErr(errUnexpected(next.txt[0]))
 		} else if next.typ == integer {
-			err = next.errorf("invalid digit %q in binary literal", next.txt[0])
+			err = next.wrapErr(errInvalidDigitInLiteral{n, rune(next.txt[0])})
 		}
 	}
 

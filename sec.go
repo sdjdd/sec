@@ -1,70 +1,60 @@
 package sec
 
 import (
-	"errors"
-	"fmt"
 	"reflect"
 )
-
-type Calc struct {
-	parser parser
-
-	Env Env
-}
-
-type Env struct {
-	Vars  Vars
-	Funcs Funcs
-}
 
 type (
 	Vars  map[string]float64
 	Funcs map[string]interface{}
+
+	Env struct {
+		Vars  Vars
+		Funcs Funcs
+	}
 )
 
-func New() (calc Calc) {
-	calc.Env.Vars = make(Vars)
-	calc.Env.Funcs = make(Funcs)
-	return
-}
+var (
+	DefaultParser Parser
+	DefaultEnv    = Env{Vars{}, Funcs{}}
+)
 
-func (c Calc) Eval(s string) (val float64, err error) {
-	expr, err := c.parser.parse(s)
-	if err != nil {
+func Parse(s string) (Expr, error) { return DefaultParser.Parse(s) }
+func Eval(s string) (val float64, err error) {
+	var expr Expr
+	if expr, err = DefaultParser.Parse(s); err != nil {
 		return
 	}
-
-	if err = c.CheckFuncs(); err != nil {
-		return
-	}
-
-	val, err = expr.Val(c.Env)
-	return
+	return expr.Val(DefaultEnv)
 }
 
-// CheckFuncs returns a non-nil error when at least one illegal function in
-// Calc.Env.Funcs.
-func (c Calc) CheckFuncs() error {
-	for fname, function := range c.Env.Funcs {
-		funcType := reflect.TypeOf(function)
-		numIn, numOut := funcType.NumIn(), funcType.NumOut()
-
+// Check returns a non-nil error when at least one illegal function in Funcs.
+func (f Funcs) Check() error {
+	for fname, fun := range f {
+		funcType := reflect.TypeOf(fun)
 		if funcType.Kind() != reflect.Func {
-			return fmt.Errorf("%q is not a function", fname)
-		} else if numOut == 0 {
-			return errors.New("function must return a value")
-		} else if numOut > 1 {
-			return errors.New("function must return only one value")
-		} else if funcType.Out(0).Kind() != reflect.Float64 {
-			return errors.New("function must return a float64 value")
+			return errIsNotFunc(fname)
 		}
 
+		numIn, numOut := funcType.NumIn(), funcType.NumOut()
+		switch {
+		case numOut == 0:
+			return errFuncRetNoVals(fname)
+		case numOut > 1:
+			return errFuncRetTooManyVals(fname)
+		case funcType.Out(0).Kind() != reflect.Float64:
+			return errFuncRetNotFloat64(fname)
+		}
+
+		if funcType.IsVariadic() {
+			numIn--
+			if reflect.SliceOf(funcType.In(numIn)).Kind() != reflect.Float64 {
+				return errFuncVariadicNotFloat64(fname)
+			}
+		}
 		for i := 0; i < numIn; i++ {
 			if funcType.In(i).Kind() != reflect.Float64 {
-				if funcType.IsVariadic() && i == numIn-1 {
-					break
-				}
-				return fmt.Errorf("parameter %d of %q is not float64", i+1, fname)
+				return errFuncParam{fname, i + 1}
 			}
 		}
 	}

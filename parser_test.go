@@ -6,14 +6,9 @@ import (
 )
 
 func TestParse(t *testing.T) {
-	var psr parser
-	script := `
-pow(
-	c3p,
-	2,
-)
-`
-	ast, err := psr.parse(script)
+	var psr Parser
+	script := "09"
+	ast, err := psr.Parse(script)
 	if err != nil {
 		t.Fatal(err)
 	}

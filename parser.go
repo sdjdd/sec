@@ -4,42 +4,35 @@ import (
 	"io"
 )
 
-type parseErr error
+type parserErr error
 
-type parser struct {
-	tokenReader *tokenReader
-
-	// current token
-	token token
+type Parser struct {
+	tokenReader tokenReader
+	token       token // current token
 }
 
-func (p *parser) next() {
+func (p *Parser) next() {
 	var err error
 	p.token, err = p.tokenReader.read()
 	if err != nil && err != io.EOF {
-		panic(parseErr(err))
+		panic(parserErr(err))
 	}
 }
 
-func (p *parser) parse(src string) (ast Expr, err error) {
-	// lazy load
-	if p.tokenReader == nil {
-		p.tokenReader = new(tokenReader)
-	}
-
+func (p *Parser) Parse(s string) (ast Expr, err error) {
 	defer func() {
 		switch er := recover().(type) {
 		case nil:
-		case parseErr:
+		case parserErr:
 			err = er
 		default:
 			panic(er)
 		}
 	}()
 
-	p.tokenReader.load(src)
+	p.tokenReader.load(s)
 	p.next()
-	ast = p.parseAdditive()
+	ast = p.parseAddition()
 
 	if p.token.typ != initial {
 		err = p.token.errorf("Unexpected %q", p.token.txt)
@@ -48,32 +41,47 @@ func (p *parser) parse(src string) (ast Expr, err error) {
 	return
 }
 
-// Additive = Multiplicative ('+' Multiplicative)*
-func (p *parser) parseAdditive() Expr {
-	left := p.parseMultiplicative()
-
+// Addition  = Multiplicative ('+' Multiplicative)*
+func (p *Parser) parseAddition() Expr {
+	left := p.parseMultiplication()
 	for {
-		if p.token.typ != plus && p.token.typ != minus {
-			break
+		switch p.token.typ {
+		case plus, minus:
+			op := p.token
+			p.next() // consume operator
+			right := p.parseMultiplication()
+			left = binary{op, left, right}
+		default:
+			return left
 		}
-		op := p.token.txt
-		p.next() // consume operator
-		right := p.parseMultiplicative()
-		left = binary{op, left, right}
 	}
-
-	return left
 }
 
-// Multiplicative = Unary ('*' Unary)*
-func (p *parser) parseMultiplicative() Expr {
+// Multiplication = Exponentiation ('*' Exponentiation)*
+func (p *Parser) parseMultiplication() Expr {
+	left := p.parseExponentiation()
+	for {
+		switch p.token.typ {
+		case star, slash, percent, doubleSlash:
+			op := p.token
+			p.next() // consume operator
+			right := p.parseExponentiation()
+			left = binary{op, left, right}
+		default:
+			return left
+		}
+	}
+}
+
+// Exponentiation = Unary ('**' Unary)*
+func (p *Parser) parseExponentiation() Expr {
 	left := p.parseUnary()
 
 	for {
-		if p.token.typ != star && p.token.typ != slash {
+		if p.token.typ != doubleStar {
 			break
 		}
-		op := p.token.txt
+		op := p.token
 		p.next() // consume operator
 		right := p.parseUnary()
 		left = binary{op, left, right}
@@ -84,7 +92,7 @@ func (p *parser) parseMultiplicative() Expr {
 
 // Unary = '+' Unary
 //       | Primary
-func (p *parser) parseUnary() Expr {
+func (p *Parser) parseUnary() Expr {
 	if p.token.typ == plus || p.token.typ == minus {
 		op := p.token
 		p.next() // consume operator
@@ -97,10 +105,10 @@ func (p *parser) parseUnary() Expr {
 //         | number
 //         | identifier '(' Additive ')'
 //         | '(' Additive ')'
-func (p *parser) parsePrimary() Expr {
+func (p *Parser) parsePrimary() Expr {
 	switch p.token.typ {
 	case initial:
-		panic(parseErr(p.token.errorf("unexpected EOF")))
+		panic(parserErr(p.token.errorf("unexpected EOF")))
 	case identifier:
 		id := p.token
 		p.next() // consume identifier
@@ -111,14 +119,20 @@ func (p *parser) parsePrimary() Expr {
 		var args []Expr
 		if p.token.typ != rBracket {
 			for {
-				args = append(args, p.parseAdditive())
+				args = append(args, p.parseAddition())
 				if p.token.typ != comma {
 					break
 				}
 				p.next() // consume ','
 			}
 			if p.token.typ != rBracket {
-				panic(parseErr(p.token.errorf("want ')', got %q", p.token.txt[0])))
+				var text string
+				if p.token.typ == initial {
+					text = "EOF"
+				} else {
+					text = "'" + string(p.token.txt[0]) + "'"
+				}
+				panic(parserErr(p.token.errorf("want ')', got %s", text)))
 			}
 		}
 		p.next() // consume ')'
@@ -129,13 +143,20 @@ func (p *parser) parsePrimary() Expr {
 		return literal(token)
 	case lBracket:
 		p.next() // consume '('
-		e := p.parseAdditive()
+		e := p.parseAddition()
 		if p.token.typ != rBracket {
-			panic(parseErr(p.token.errorf("want ')', got %q", p.token.txt)))
+			var text string
+			if p.token.typ == initial {
+				text = "EOF"
+			} else {
+				text = "'" + string(p.token.txt[0]) + "'"
+			}
+			p.next()
+			panic(parserErr(p.token.errorf("want ')', got %s", text)))
 		}
 		p.next() // consume ')'
 		return e
 	default:
-		panic(parseErr(p.token.errorf("unexpected %q", p.token.txt)))
+		panic(parserErr(p.token.errorf("unexpected %q", p.token.txt[0])))
 	}
 }

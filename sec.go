@@ -33,7 +33,7 @@ func (f Funcs) Check() error {
 	for fname, fun := range f {
 		funcType := reflect.TypeOf(fun)
 		if funcType.Kind() != reflect.Func {
-			return errIsNotFunc(fname)
+			return ErrNotFunction{fname}
 		}
 
 		numIn, numOut := funcType.NumIn(), funcType.NumOut()
@@ -54,7 +54,7 @@ func (f Funcs) Check() error {
 		}
 		for i := 0; i < numIn; i++ {
 			if funcType.In(i).Kind() != reflect.Float64 {
-				return errFuncParam{fname, i + 1}
+				return ErrParamNotFloat64{fname, i + 1}
 			}
 		}
 	}

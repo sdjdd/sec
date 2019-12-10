@@ -6,12 +6,12 @@ import (
 	"strings"
 )
 
-type srcInfo struct {
-	row, col int
+type SourceInfo struct {
+	Row, col int
 }
 
 type token struct {
-	srcInfo
+	SourceInfo
 
 	// token type
 	typ int
@@ -31,7 +31,7 @@ type tokenReader struct {
 	text strings.Builder
 
 	// current row and column
-	srcInfo
+	SourceInfo
 
 	lastRowCols int
 }
@@ -74,11 +74,11 @@ func isBlank(ch rune) bool {
 	return ch == ' ' || ch == '\t'
 }
 
-func (s srcInfo) String() string {
-	return fmt.Sprintf("[%d, %d]", s.row, s.col)
+func (s SourceInfo) String() string {
+	return fmt.Sprintf("[%d, %d]", s.Row, s.col)
 }
 
-func (t token) wrapErr(err error) error { return tokenErr{t.srcInfo, err} }
+func (t token) wrapErr(err error) error { return tokenErr{t.SourceInfo, err} }
 
 func (t token) String() (str string) {
 	switch t.typ {
@@ -129,21 +129,21 @@ func (t token) String() (str string) {
 
 func (t *tokenReader) load(src string) {
 	t.src.Reset(src)
-	t.row, t.col = 1, 1
+	t.Row, t.col = 1, 1
 }
 
 func (t *tokenReader) srcUnread() {
 	t.src.UnreadRune()
 	if t.col == 0 {
 		t.col = t.lastRowCols
-		t.row--
+		t.Row--
 	} else {
 		t.col--
 	}
 }
 
 func (t *tokenReader) read() (tk token, err error) {
-	tk.row, tk.col = t.row, t.col
+	tk.Row, tk.col = t.Row, t.col
 
 	if t.src.Len() == 0 {
 		err = io.EOF
@@ -166,15 +166,15 @@ readLoop:
 			} else if ch == '\r' {
 				ch, _, er := t.src.ReadRune()
 				if er != nil || ch != '\n' {
-					err = tk.wrapErr(errUnexpected('\r'))
+					err = ErrUnexpected{tk.SourceInfo, '\r'}
 					return
 				}
 				t.src.UnreadRune()
 			} else if ch == '\n' {
 				tk.afterNewLine = true
 				t.lastRowCols = t.col
-				t.row, t.col = t.row+1, 1
-				tk.row, tk.col = t.row, t.col
+				t.Row, t.col = t.Row+1, 1
+				tk.Row, tk.col = t.Row, t.col
 			} else if isAlpha(ch) || ch == '_' {
 				tk.typ = identifier
 				t.text.WriteRune(ch)
@@ -211,7 +211,7 @@ readLoop:
 					tk.typ = comma
 					break readLoop
 				default:
-					err = tk.wrapErr(errUnexpected(ch))
+					err = ErrUnexpected{tk.SourceInfo, ch}
 					return
 				}
 			}
@@ -355,9 +355,9 @@ func explainLiteralPrefixError(tk token, r *tokenReader) (err error) {
 	next, er := r.read()
 	if er == nil && !next.afterBlank && !next.afterNewLine {
 		if tk.typ == hexLiteralPrefix {
-			err = next.wrapErr(errUnexpected(next.txt[0]))
+			err = ErrUnexpected{next.SourceInfo, []rune(next.txt)[0]}
 		} else if next.typ == integer {
-			err = next.wrapErr(errInvalidDigitInLiteral{n, rune(next.txt[0])})
+			err = next.wrapErr(errInvalidDigitInLiteral{n, []rune(next.txt)[0]})
 		}
 	}
 

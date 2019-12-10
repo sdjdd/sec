@@ -1,21 +1,33 @@
 package sec
 
 import (
+	"errors"
 	"fmt"
 )
 
 type (
 	tokenErr struct {
-		srcInfo
+		SourceInfo
 		err error
 	}
 
-	errUnexpected rune
-	errFuncParam  struct {
-		name string
-		n    int
+	// get a unexpected Char
+	ErrUnexpected struct {
+		SourceInfo
+		Char rune
 	}
-	errIsNotFunc              string
+
+	// function's Nth parameter is not float64
+	ErrParamNotFloat64 struct {
+		Name string // functhon name
+		N    int    // Nth parameter
+	}
+
+	// Name's value in Env.Funcs in not a legal function
+	ErrNotFunction struct {
+		Name string
+	}
+
 	errFuncRetTooManyVals     string
 	errFuncRetNoVals          string
 	errFuncRetNotFloat64      string
@@ -25,21 +37,27 @@ type (
 		bit int
 		ch  rune
 	}
+	errUndeclaredVar string
+	errUndeclaredFun string
+	errTooFewArgs    string
+	errTooManyArgs   string
 )
+
+var errUnexpectedEOF = errors.New("unexpected EOF")
 
 func (t tokenErr) Unwrap() error { return t.err }
 
 func (t tokenErr) Error() string {
-	return fmt.Sprintf("%s: %s", t.srcInfo, t.err)
+	return fmt.Sprintf("%s: %s", t.SourceInfo, t.err)
 }
 
-func (e errUnexpected) Error() string {
-	return fmt.Sprintf("unexpected %q", rune(e))
+func (e ErrUnexpected) Error() string {
+	return fmt.Sprintf("%s: unexpected %q", e.SourceInfo, e.Char)
 }
 
-func (f errFuncParam) Error() string {
+func (f ErrParamNotFloat64) Error() string {
 	var text string
-	switch f.n {
+	switch f.N {
 	case 1:
 		text = "first"
 	case 2:
@@ -47,14 +65,14 @@ func (f errFuncParam) Error() string {
 	case 3:
 		text = "third"
 	default:
-		text = fmt.Sprintf("%dth", f.n)
+		text = fmt.Sprintf("%dth", f.N)
 	}
 
-	return fmt.Sprintf("the %s parameter of function %q is not float64", text, f.name)
+	return fmt.Sprintf("the %s parameter of function %q is not float64", text, f.Name)
 }
 
-func (e errIsNotFunc) Error() string {
-	return fmt.Sprintf("%q is not a function", string(e))
+func (e ErrNotFunction) Error() string {
+	return fmt.Sprintf("%q is not a function", e.Name)
 }
 
 func (e errFuncRetTooManyVals) Error() string {
@@ -93,4 +111,20 @@ func (e errLiteralHasNoDigits) Error() string {
 
 func (e errInvalidDigitInLiteral) Error() string {
 	return fmt.Sprintf("invalid digit %q in %s literal", e.ch, bit2str(e.bit))
+}
+
+func (e errUndeclaredVar) Error() string {
+	return fmt.Sprintf("undeclared variable %q", string(e))
+}
+
+func (e errUndeclaredFun) Error() string {
+	return fmt.Sprintf("undeclared function %q", string(e))
+}
+
+func (e errTooFewArgs) Error() string {
+	return fmt.Sprintf("too few arguments to call %q", string(e))
+}
+
+func (e errTooManyArgs) Error() string {
+	return fmt.Sprintf("too many arguments to call %q", string(e))
 }

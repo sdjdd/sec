@@ -1,7 +1,6 @@
 package sec
 
 import (
-	"fmt"
 	"math"
 	"reflect"
 	"strconv"
@@ -32,23 +31,10 @@ type (
 	}
 )
 
-type AstError struct {
-	srcInfo
-	err error
-}
-
-func (a AstError) Error() string {
-	return fmt.Sprintf("[%d, %d]: %s", a.row, a.col, a.err)
-}
-
-func (s srcInfo) errorf(format string, a ...interface{}) error {
-	return AstError{s, fmt.Errorf(format, a...)}
-}
-
 func (v variable) Val(env Env) (val float64, err error) {
 	var ok bool
 	if val, ok = env.Vars[v.txt]; !ok {
-		err = v.errorf("Undeclared variable %q", v.txt)
+		err = token(v).wrapErr(errUndeclaredVar(v.txt))
 	}
 	return
 }
@@ -108,7 +94,7 @@ func (b binary) Val(env Env) (val float64, err error) {
 func (c call) Val(env Env) (val float64, err error) {
 	fun, ok := env.Funcs[c.txt]
 	if !ok {
-		err = c.errorf("Undeclared function %q", c.txt)
+		err = c.wrapErr(errUndeclaredFun(c.txt))
 		return
 	}
 
@@ -120,10 +106,10 @@ func (c call) Val(env Env) (val float64, err error) {
 	}
 
 	if len(c.args) < argc {
-		err = c.errorf("too few arguments to call %q", c.txt)
+		err = c.wrapErr(errTooFewArgs(c.txt))
 		return
 	} else if len(c.args) > argc && !ftype.IsVariadic() {
-		err = c.errorf("too many arguments to call %q", c.txt)
+		err = c.wrapErr(errTooManyArgs(c.txt))
 		return
 	}
 

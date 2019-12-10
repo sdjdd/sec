@@ -35,7 +35,7 @@ func (p *Parser) Parse(s string) (ast Expr, err error) {
 	ast = p.parseAddition()
 
 	if p.token.typ != initial {
-		err = p.token.errorf("Unexpected %q", p.token.txt)
+		err = ErrUnexpected{p.token.SourceInfo, []rune(p.token.txt)[0]}
 	}
 
 	return
@@ -108,7 +108,7 @@ func (p *Parser) parseUnary() Expr {
 func (p *Parser) parsePrimary() Expr {
 	switch p.token.typ {
 	case initial:
-		panic(parserErr(p.token.errorf("unexpected EOF")))
+		panic(parserErr(p.token.wrapErr(errUnexpectedEOF)))
 	case identifier:
 		id := p.token
 		p.next() // consume identifier
@@ -126,13 +126,8 @@ func (p *Parser) parsePrimary() Expr {
 				p.next() // consume ','
 			}
 			if p.token.typ != rBracket {
-				var text string
-				if p.token.typ == initial {
-					text = "EOF"
-				} else {
-					text = "'" + string(p.token.txt[0]) + "'"
-				}
-				panic(parserErr(p.token.errorf("want ')', got %s", text)))
+				err := ErrUnexpected{p.tokenReader.SourceInfo, []rune(p.token.txt)[0]}
+				panic(parserErr(err))
 			}
 		}
 		p.next() // consume ')'
@@ -145,18 +140,12 @@ func (p *Parser) parsePrimary() Expr {
 		p.next() // consume '('
 		e := p.parseAddition()
 		if p.token.typ != rBracket {
-			var text string
-			if p.token.typ == initial {
-				text = "EOF"
-			} else {
-				text = "'" + string(p.token.txt[0]) + "'"
-			}
-			p.next()
-			panic(parserErr(p.token.errorf("want ')', got %s", text)))
+			panic(parserErr(ErrUnexpected{p.token.SourceInfo, []rune(p.token.txt)[0]}))
 		}
 		p.next() // consume ')'
 		return e
 	default:
-		panic(parserErr(p.token.errorf("unexpected %q", p.token.txt[0])))
+		err := ErrUnexpected{p.tokenReader.SourceInfo, []rune(p.token.txt)[0]}
+		panic(parserErr(err))
 	}
 }

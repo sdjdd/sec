@@ -5,7 +5,7 @@ import (
 )
 
 func TestSec(t *testing.T) {
-	t.Log(Eval("3**2"))
+	t.Log(Eval("崔三炮"))
 }
 
 func TestFuncCheck(t *testing.T) {
@@ -13,7 +13,7 @@ func TestFuncCheck(t *testing.T) {
 	env.Funcs = make(Funcs)
 
 	env.Funcs["f"] = "not a function"
-	if _, ok := env.Funcs.Check().(errIsNotFunc); !ok {
+	if _, ok := env.Funcs.Check().(ErrNotFunction); !ok {
 		t.Fatal("expect errIsNotFunc error")
 	}
 
@@ -38,9 +38,9 @@ func TestFuncCheck(t *testing.T) {
 	}
 
 	env.Funcs["f"] = func(p1 float64, p2 int) float64 { return 0 }
-	if err, ok := env.Funcs.Check().(errFuncParam); !ok {
+	if err, ok := env.Funcs.Check().(ErrParamNotFloat64); !ok {
 		t.Fatal("expect errFuncParam error")
-	} else if err.n != 2 {
+	} else if err.N != 2 {
 		t.Fatal("param number not correct")
 	}
 

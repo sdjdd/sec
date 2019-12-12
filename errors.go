@@ -6,14 +6,13 @@ import (
 )
 
 type (
-	tokenErr struct {
+	secError struct {
 		SourceInfo
 		err error
 	}
 
 	// get a unexpected Char
 	ErrUnexpected struct {
-		SourceInfo
 		Char rune
 	}
 
@@ -45,14 +44,14 @@ type (
 
 var errUnexpectedEOF = errors.New("unexpected EOF")
 
-func (t tokenErr) Unwrap() error { return t.err }
+func (t secError) Unwrap() error { return t.err }
 
-func (t tokenErr) Error() string {
+func (t secError) Error() string {
 	return fmt.Sprintf("%s: %s", t.SourceInfo, t.err)
 }
 
 func (e ErrUnexpected) Error() string {
-	return fmt.Sprintf("%s: unexpected %q", e.SourceInfo, e.Char)
+	return fmt.Sprintf("unexpected %q", e.Char)
 }
 
 func (f ErrParamNotFloat64) Error() string {

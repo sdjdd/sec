@@ -6,21 +6,33 @@ import (
 	"testing"
 )
 
+func TestReadEmptyText(t *testing.T) {
+	var r tokenReader
+	tk, err := r.read()
+	if err != io.EOF || tk.typ != initial {
+		t.Fatal("expect initial tokan and EOF error")
+	}
+}
+
 func TestUnexpectedRune(t *testing.T) {
 	var r tokenReader
-	r.load("\n0b6")
-	t.Log(r.read())
+	r.load("\r\n")
+	for {
+		tk, err := r.read()
+		if err != nil {
+			t.Log(err)
+			break
+		}
+		t.Log(tk, tk.txt)
+	}
 }
 
 func TestReadToken(t *testing.T) {
 	var r tokenReader
-	if tk, err := r.read(); err != io.EOF || tk.typ != initial {
-		t.Fatal("expect initial tokan and EOF error")
-	}
 
 	testTokens := []struct {
 		txt string
-		typ int
+		typ tokenType
 	}{
 		{"id", identifier},
 		{"123", integer}, {"0", integer},
@@ -46,7 +58,7 @@ func TestReadToken(t *testing.T) {
 	for _, tt := range testTokens {
 		tk, err := r.read()
 		if err != nil {
-			t.Fatal("expect no error")
+			t.Fatal(tt, "expect no error, get:", err)
 		} else if tk.typ != tt.typ {
 			t.Fatalf("expect %s %s", token{typ: tt.typ}, tt.txt)
 		}

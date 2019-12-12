@@ -4,8 +4,6 @@ import (
 	"io"
 )
 
-type parserErr error
-
 type Parser struct {
 	tokenReader tokenReader
 	token       token // current token
@@ -15,7 +13,7 @@ func (p *Parser) next() {
 	var err error
 	p.token, err = p.tokenReader.read()
 	if err != nil && err != io.EOF {
-		panic(parserErr(err))
+		panic(err)
 	}
 }
 
@@ -23,7 +21,7 @@ func (p *Parser) Parse(s string) (ast Expr, err error) {
 	defer func() {
 		switch er := recover().(type) {
 		case nil:
-		case parserErr:
+		case secError:
 			err = er
 		default:
 			panic(er)
@@ -35,7 +33,7 @@ func (p *Parser) Parse(s string) (ast Expr, err error) {
 	ast = p.parseAddition()
 
 	if p.token.typ != initial {
-		err = ErrUnexpected{p.token.SourceInfo, []rune(p.token.txt)[0]}
+		err = ErrUnexpected{[]rune(p.token.txt)[0]}
 	}
 
 	return
@@ -108,7 +106,7 @@ func (p *Parser) parseUnary() Expr {
 func (p *Parser) parsePrimary() Expr {
 	switch p.token.typ {
 	case initial:
-		panic(parserErr(p.token.wrapErr(errUnexpectedEOF)))
+		panic(p.token.wrapErr(errUnexpectedEOF))
 	case identifier:
 		id := p.token
 		p.next() // consume identifier
@@ -126,8 +124,8 @@ func (p *Parser) parsePrimary() Expr {
 				p.next() // consume ','
 			}
 			if p.token.typ != rBracket {
-				err := ErrUnexpected{p.tokenReader.SourceInfo, []rune(p.token.txt)[0]}
-				panic(parserErr(err))
+				err := ErrUnexpected{[]rune(p.token.txt)[0]}
+				panic(secError{p.token.SourceInfo, err})
 			}
 		}
 		p.next() // consume ')'
@@ -140,12 +138,12 @@ func (p *Parser) parsePrimary() Expr {
 		p.next() // consume '('
 		e := p.parseAddition()
 		if p.token.typ != rBracket {
-			panic(parserErr(ErrUnexpected{p.token.SourceInfo, []rune(p.token.txt)[0]}))
+			panic(p.token.wrapErr(ErrUnexpected{[]rune(p.token.txt)[0]}))
 		}
 		p.next() // consume ')'
 		return e
 	default:
-		err := ErrUnexpected{p.tokenReader.SourceInfo, []rune(p.token.txt)[0]}
-		panic(parserErr(err))
+		err := p.token.wrapErr(ErrUnexpected{[]rune(p.token.txt)[0]})
+		panic(err)
 	}
 }

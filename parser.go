@@ -32,7 +32,7 @@ func (p *Parser) Parse(s string) (ast Expr, err error) {
 	p.next()
 	ast = p.parseAddition()
 
-	if p.token.typ != initial {
+	if p.token.typ != EOF {
 		err = ErrUnexpected{[]rune(p.token.txt)[0]}
 	}
 
@@ -105,7 +105,7 @@ func (p *Parser) parseUnary() Expr {
 //         | '(' Additive ')'
 func (p *Parser) parsePrimary() Expr {
 	switch p.token.typ {
-	case initial:
+	case EOF:
 		panic(p.token.wrapErr(errUnexpectedEOF))
 	case identifier:
 		id := p.token
@@ -125,7 +125,7 @@ func (p *Parser) parsePrimary() Expr {
 			}
 			if p.token.typ != rBracket {
 				err := ErrUnexpected{[]rune(p.token.txt)[0]}
-				panic(secError{p.token.SourceInfo, err})
+				panic(secError{p.token.pos, err})
 			}
 		}
 		p.next() // consume ')'

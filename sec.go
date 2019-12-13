@@ -39,18 +39,18 @@ func (f Funcs) Check() error {
 		numIn, numOut := funcType.NumIn(), funcType.NumOut()
 		switch {
 		case numOut == 0:
-			return errFuncRetNoVals(fname)
+			return ErrFuncNoReturnVal{fname}
 		case numOut > 1:
-			return errFuncRetTooManyVals(fname)
+			return ErrFuncReturnTooManyVal{fname}
 		case funcType.Out(0).Kind() != reflect.Float64:
-			return errFuncRetNotFloat64(fname)
+			return ErrReturnValNotFloat64{fname}
 		}
 
 		if funcType.IsVariadic() {
-			numIn--
-			if reflect.SliceOf(funcType.In(numIn)).Kind() != reflect.Float64 {
-				return errFuncVariadicNotFloat64(fname)
+			if reflect.SliceOf(funcType.In(numIn-1)).Kind() != reflect.Float64 {
+				return ErrParamNotFloat64{fname, numIn}
 			}
+			numIn--
 		}
 		for i := 0; i < numIn; i++ {
 			if funcType.In(i).Kind() != reflect.Float64 {

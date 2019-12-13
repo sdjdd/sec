@@ -7,7 +7,7 @@ import (
 
 type (
 	secError struct {
-		SourceInfo
+		pos
 		err error
 	}
 
@@ -27,19 +27,44 @@ type (
 		Name string
 	}
 
-	errFuncRetTooManyVals     string
-	errFuncRetNoVals          string
-	errFuncRetNotFloat64      string
-	errFuncVariadicNotFloat64 string
-	errLiteralHasNoDigits     int
-	errInvalidDigitInLiteral  struct {
-		bit int
-		ch  rune
+	// function return too many values
+	ErrFuncReturnTooManyVal struct {
+		Name string // function name
 	}
-	errUndeclaredVar string
-	errUndeclaredFun string
-	errTooFewArgs    string
-	errTooManyArgs   string
+
+	// function return no value
+	ErrFuncNoReturnVal struct {
+		Name string // function name
+	}
+
+	ErrReturnValNotFloat64 struct {
+		Name string
+	}
+
+	ErrLiteralNoDigit struct {
+		Base int
+	}
+
+	ErrInvalidDigitInLiteral struct {
+		Base  int
+		Digit rune
+	}
+
+	ErrUndeclaredVar struct {
+		Name string
+	}
+
+	ErrUndeclaredFunc struct {
+		Name string
+	}
+
+	ErrTooFewArgsToCall struct {
+		Name string
+	}
+
+	ErrTooManyArgsToCall struct {
+		Name string
+	}
 )
 
 var errUnexpectedEOF = errors.New("unexpected EOF")
@@ -47,7 +72,7 @@ var errUnexpectedEOF = errors.New("unexpected EOF")
 func (t secError) Unwrap() error { return t.err }
 
 func (t secError) Error() string {
-	return fmt.Sprintf("%s: %s", t.SourceInfo, t.err)
+	return fmt.Sprintf("%s: %s", t.pos, t.err)
 }
 
 func (e ErrUnexpected) Error() string {
@@ -74,23 +99,19 @@ func (e ErrNotFunction) Error() string {
 	return fmt.Sprintf("%q is not a function", e.Name)
 }
 
-func (e errFuncRetTooManyVals) Error() string {
-	return fmt.Sprintf("function %q must return only one value", string(e))
+func (e ErrFuncReturnTooManyVal) Error() string {
+	return fmt.Sprintf("function %q must return only one value", e.Name)
 }
 
-func (e errFuncRetNoVals) Error() string {
-	return fmt.Sprintf("function %q must return a value", string(e))
+func (e ErrFuncNoReturnVal) Error() string {
+	return fmt.Sprintf("function %q must return a value", e.Name)
 }
 
-func (e errFuncRetNotFloat64) Error() string {
-	return fmt.Sprintf("function %q must return a float64 value", string(e))
+func (e ErrReturnValNotFloat64) Error() string {
+	return fmt.Sprintf("function %q must return a float64 value", e.Name)
 }
 
-func (e errFuncVariadicNotFloat64) Error() string {
-	return fmt.Sprintf("variadic parameter of %q must be float64", string(e))
-}
-
-func bit2str(bit int) (str string) {
+func baseToStr(bit int) (str string) {
 	switch bit {
 	case 2:
 		str = "binary"
@@ -104,26 +125,26 @@ func bit2str(bit int) (str string) {
 	return
 }
 
-func (e errLiteralHasNoDigits) Error() string {
-	return bit2str(int(e)) + " literal has no digits"
+func (e ErrLiteralNoDigit) Error() string {
+	return baseToStr(e.Base) + " literal has no digits"
 }
 
-func (e errInvalidDigitInLiteral) Error() string {
-	return fmt.Sprintf("invalid digit %q in %s literal", e.ch, bit2str(e.bit))
+func (e ErrInvalidDigitInLiteral) Error() string {
+	return fmt.Sprintf("invalid digit %q in %s literal", e.Digit, baseToStr(e.Base))
 }
 
-func (e errUndeclaredVar) Error() string {
-	return fmt.Sprintf("undeclared variable %q", string(e))
+func (e ErrUndeclaredVar) Error() string {
+	return fmt.Sprintf("undeclared variable %q", e.Name)
 }
 
-func (e errUndeclaredFun) Error() string {
-	return fmt.Sprintf("undeclared function %q", string(e))
+func (e ErrUndeclaredFunc) Error() string {
+	return fmt.Sprintf("undeclared function %q", e.Name)
 }
 
-func (e errTooFewArgs) Error() string {
-	return fmt.Sprintf("too few arguments to call %q", string(e))
+func (e ErrTooFewArgsToCall) Error() string {
+	return fmt.Sprintf("too few arguments to call %q", e.Name)
 }
 
-func (e errTooManyArgs) Error() string {
-	return fmt.Sprintf("too many arguments to call %q", string(e))
+func (e ErrTooManyArgsToCall) Error() string {
+	return fmt.Sprintf("too many arguments to call %q", e.Name)
 }

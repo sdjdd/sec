@@ -7,29 +7,26 @@ import (
 )
 
 type (
-	tokenType uint8
+	tokenType int
 
-	SourceInfo struct {
-		Row, col int
+	pos struct {
+		Row, Col int
 	}
 
 	token struct {
-		SourceInfo
-		// token type
+		pos
+
 		typ tokenType
-		// token text
 		txt string
 
-		afterBlank bool
-
+		afterBlank   bool
 		afterNewLine bool
 	}
 
 	tokenReader struct {
-		SourceInfo
-		// expression source
+		pos
 		src strings.Reader
-		// store current token's text
+		// current token's text
 		text strings.Builder
 	}
 )
@@ -62,10 +59,6 @@ const (
 	EOF
 )
 
-func (s *SourceInfo) NextLine() {
-	s.Row, s.col = s.Row+1, 1
-}
-
 func isAlpha(ch rune) bool {
 	return ch >= 'a' && ch <= 'z' || ch >= 'A' && ch <= 'Z'
 }
@@ -78,14 +71,14 @@ func isBlank(ch rune) bool {
 	return ch == ' ' || ch == '\t'
 }
 
-func (s SourceInfo) String() string {
-	return fmt.Sprintf("[%d, %d]", s.Row, s.col)
+func (s pos) String() string {
+	return fmt.Sprintf("[%d, %d]", s.Row, s.Col)
 }
 
-func (s SourceInfo) wrapErr(err error) error { return secError{s, err} }
+func (s pos) wrapErr(err error) error { return secError{s, err} }
 
-func (t token) String() (str string) {
-	switch t.typ {
+func (t tokenType) String() (str string) {
+	switch t {
 	case initial:
 		str = "initial"
 	case identifier:
@@ -122,6 +115,8 @@ func (t token) String() (str string) {
 		str = "star"
 	case slash:
 		str = "slash"
+	case percent:
+		str = "percent"
 	case doubleStar:
 		str = "double-star"
 	case doubleSlash:
@@ -129,85 +124,77 @@ func (t token) String() (str string) {
 	default:
 		str = "unknown"
 	}
-
 	return
 }
 
 func (t *tokenReader) load(src string) {
 	t.src.Reset(src)
 	t.text.Reset()
-	t.Row, t.col = 1, 1
+	t.Row, t.Col = 1, 1
 }
 
 func (t *tokenReader) read() (tk token, err error) {
-	tk.SourceInfo = t.SourceInfo
+	var unread, finish bool
+	prevLineCols := t.Col
 
-	if t.src.Len() == 0 {
-		err = io.EOF
-		return
-	}
-
-	var ch rune
-loop:
-	for {
-		ch, _, err = t.src.ReadRune()
-		if err != nil {
-			err = nil
+	for !finish {
+		ch, _, er := t.src.ReadRune()
+		if er != nil {
 			break
 		}
+		t.Col++
 
 		switch tk.typ {
 		case initial:
 			if isBlank(ch) {
-				t.col++
+				// skip blank
 			} else if ch == '\r' || ch == '\n' {
 				if ch == '\r' {
-					ch, _, _ = t.src.ReadRune()
-					if ch != '\n' {
+					if ch, _, _ = t.src.ReadRune(); ch != '\n' {
 						err = tk.wrapErr(ErrUnexpected{'\r'})
 						return
 					}
 				}
 				t.Row++
-				t.col = 1
-				tk.Row, tk.col = t.Row, t.col
-			} else if isAlpha(ch) || ch == '_' {
-				t.text.WriteRune(ch)
-				tk.typ = identifier
-			} else if ch == '0' {
-				t.text.WriteRune(ch)
-				tk.typ = zero
-			} else if ch >= '1' && ch <= '9' {
-				t.text.WriteRune(ch)
-				tk.typ = integer
+				prevLineCols = t.Col
+				t.Col = 1
 			} else {
+				tk.Row, tk.Col = t.Row, t.Col-1
 				t.text.WriteRune(ch)
-				switch ch {
-				case '+':
-					tk.typ = plus
-					break loop
-				case '-':
-					tk.typ = minus
-					break loop
-				case '*':
-					tk.typ = star
-				case '/':
-					tk.typ = slash
-				case '%':
-					tk.typ = percent
-					break loop
-				case '(':
-					tk.typ = lBracket
-					break loop
-				case ')':
-					tk.typ = rBracket
-					break loop
-				case ',':
-					tk.typ = comma
-					break loop
-				default:
-					err = tk.wrapErr(ErrUnexpected{ch})
-					return
+				if isAlpha(ch) || ch == '_' {
+					tk.typ = identifier
+				} else if ch >= '1' && ch <= '9' {
+					tk.typ = integer
+				} else {
+					switch ch {
+					case '0':
+						tk.typ = zero
+					case '+':
+						tk.typ = plus
+						finish = true
+					case '-':
+						tk.typ = minus
+						finish = true
+					case '*':
+						tk.typ = star
+					case '/':
+						tk.typ = slash
+					case '%':
+						tk.typ = percent
+						finish = true
+					case '(':
+						tk.typ = lBracket
+						finish = true
+					case ')':
+						tk.typ = rBracket
+						finish = true
+					case ',':
+						tk.typ = comma
+						finish = true
+					default:
+						err = tk.wrapErr(ErrUnexpected{ch})
+						return
+					}
 				}
 			}
 		case star:
@@ -215,23 +202,23 @@ loop:
 				t.text.WriteRune(ch)
 				tk.typ = doubleStar
 			} else {
-				t.src.UnreadRune()
+				unread = true
 			}
-			break loop
+			finish = true
 		case slash:
 			if ch == '/' {
 				t.text.WriteRune(ch)
 				tk.typ = doubleSlash
 			} else {
-				t.src.UnreadRune()
+				unread = true
 			}
-			break loop
+			finish = true
 		case identifier:
 			if isAlpha(ch) || isNumber(ch) || ch == '_' {
 				t.text.WriteRune(ch)
 			} else {
-				t.src.UnreadRune()
-				break loop
+				unread = true
+				finish = true
 			}
 		case zero:
 			if isNumber(ch) {
@@ -252,8 +239,8 @@ loop:
 					t.text.WriteRune(ch)
 					tk.typ = hexLiteralPrefix
 				default:
-					t.src.UnreadRune()
-					break loop
+					unread = true
+					finish = true
 				}
 			}
 		case binLiteralPrefix:
@@ -261,45 +248,45 @@ loop:
 				t.text.WriteRune(ch)
 				tk.typ = binLiteral
 			} else {
-				t.src.UnreadRune()
-				break loop
+				unread = true
+				finish = true
 			}
 		case octLiteralPrefix:
 			if ch >= '0' && ch <= '7' {
 				t.text.WriteRune(ch)
 				tk.typ = octLiteral
 			} else {
-				t.src.UnreadRune()
-				break loop
+				unread = true
+				finish = true
 			}
 		case hexLiteralPrefix:
 			if isNumber(ch) || ch >= 'a' && ch <= 'f' || ch >= 'A' && ch <= 'F' {
 				t.text.WriteRune(ch)
 				tk.typ = hexLiteral
 			} else {
-				t.src.UnreadRune()
-				break loop
+				unread = true
+				finish = true
 			}
 		case binLiteral:
 			if ch == '0' || ch == '1' {
 				t.text.WriteRune(ch)
 			} else {
-				t.src.UnreadRune()
-				break loop
+				unread = true
+				finish = true
 			}
 		case octLiteral:
 			if ch >= '0' && ch <= '7' {
 				t.text.WriteRune(ch)
 			} else {
-				t.src.UnreadRune()
-				break loop
+				unread = true
+				finish = true
 			}
 		case hexLiteral:
 			if isNumber(ch) || ch >= 'a' && ch <= 'f' || ch >= 'A' && ch <= 'F' {
 				t.text.WriteRune(ch)
 			} else {
-				t.src.UnreadRune()
-				break loop
+				unread = true
+				finish = true
 			}
 		case integer:
 			if isNumber(ch) {
@@ -308,18 +295,26 @@ loop:
 				t.text.WriteRune(ch)
 				tk.typ = float
 			} else {
-				t.src.UnreadRune()
-				break loop
+				unread = true
+				finish = true
 			}
 		case float:
 			if isNumber(ch) {
 				t.text.WriteRune(ch)
 			} else {
-				t.src.UnreadRune()
-				break loop
+				unread = true
+				finish = true
 			}
 		default:
 			panic("Not handling all possible cases")
+		}
+	}
+
+	if unread {
+		t.src.UnreadRune()
+		if t.Col--; t.Col == 0 {
+			t.Col = prevLineCols
+			t.Row--
 		}
 	}
 
@@ -327,6 +322,8 @@ loop:
 	t.text.Reset()
 
 	switch tk.typ {
+	case initial:
+		tk.typ, err = EOF, io.EOF
 	case zero:
 		tk.typ = integer
 	case binLiteralPrefix, octLiteralPrefix, hexLiteralPrefix:
@@ -348,14 +345,14 @@ func explainLiteralPrefixError(tk token, r *tokenReader) (err error) {
 	default:
 		return nil
 	}
-	err = tk.wrapErr(errLiteralHasNoDigits(n))
+	err = tk.wrapErr(ErrLiteralNoDigit{n})
 
 	next, er := r.read()
 	if er == nil && !next.afterBlank && !next.afterNewLine {
 		if tk.typ == hexLiteralPrefix {
 			err = next.wrapErr(ErrUnexpected{[]rune(next.txt)[0]})
 		} else if next.typ == integer {
-			err = next.wrapErr(errInvalidDigitInLiteral{n, []rune(next.txt)[0]})
+			err = next.wrapErr(ErrInvalidDigitInLiteral{n, []rune(next.txt)[0]})
 		}
 	}
 

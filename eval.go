@@ -34,7 +34,7 @@ type (
 func (v variable) Val(env Env) (val float64, err error) {
 	var ok bool
 	if val, ok = env.Vars[v.txt]; !ok {
-		err = token(v).wrapErr(errUndeclaredVar(v.txt))
+		err = token(v).wrapErr(ErrUndeclaredVar{v.txt})
 	}
 	return
 }
@@ -94,7 +94,7 @@ func (b binary) Val(env Env) (val float64, err error) {
 func (c call) Val(env Env) (val float64, err error) {
 	fun, ok := env.Funcs[c.txt]
 	if !ok {
-		err = c.wrapErr(errUndeclaredFun(c.txt))
+		err = c.wrapErr(ErrUndeclaredFunc{c.txt})
 		return
 	}
 
@@ -106,10 +106,10 @@ func (c call) Val(env Env) (val float64, err error) {
 	}
 
 	if len(c.args) < argc {
-		err = c.wrapErr(errTooFewArgs(c.txt))
+		err = c.wrapErr(ErrTooFewArgsToCall{c.txt})
 		return
 	} else if len(c.args) > argc && !ftype.IsVariadic() {
-		err = c.wrapErr(errTooManyArgs(c.txt))
+		err = c.wrapErr(ErrTooManyArgsToCall{c.txt})
 		return
 	}
 

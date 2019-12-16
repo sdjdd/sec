@@ -9,12 +9,12 @@ import (
 type (
 	tokenType int
 
-	pos struct {
+	Position struct {
 		Row, Col int
 	}
 
 	token struct {
-		pos
+		Position
 
 		typ tokenType
 		txt string
@@ -24,7 +24,7 @@ type (
 	}
 
 	tokenReader struct {
-		pos
+		Position
 		src strings.Reader
 		// current token's text
 		text strings.Builder
@@ -71,11 +71,9 @@ func isBlank(ch rune) bool {
 	return ch == ' ' || ch == '\t'
 }
 
-func (s pos) String() string {
+func (s Position) String() string {
 	return fmt.Sprintf("[%d, %d]", s.Row, s.Col)
 }
-
-func (s pos) wrapErr(err error) error { return secError{s, err} }
 
 func (t tokenType) String() (str string) {
 	switch t {
@@ -151,7 +149,7 @@ func (t *tokenReader) read() (tk token, err error) {
 			} else if ch == '\r' || ch == '\n' {
 				if ch == '\r' {
 					if ch, _, _ = t.src.ReadRune(); ch != '\n' {
-						err = tk.wrapErr(ErrUnexpected{'\r'})
+						err = ErrUnexpected{t.Position, '\r'}
 						return
 					}
 				}
@@ -192,7 +190,7 @@ func (t *tokenReader) read() (tk token, err error) {
 						tk.typ = comma
 						finish = true
 					default:
-						err = tk.wrapErr(ErrUnexpected{ch})
+						err = secError{ErrUnexpected{tk.Position, ch}}
 						return
 					}
 				}
@@ -345,16 +343,16 @@ func explainLiteralPrefixError(tk token, r *tokenReader) (err error) {
 	default:
 		return nil
 	}
-	err = tk.wrapErr(ErrLiteralNoDigit{n})
+	err = ErrLiteralNoDigit{tk.Position, n}
 
 	next, er := r.read()
 	if er == nil && !next.afterBlank && !next.afterNewLine {
 		if tk.typ == hexLiteralPrefix {
-			err = next.wrapErr(ErrUnexpected{[]rune(next.txt)[0]})
+			err = ErrUnexpected{next.Position, []rune(next.txt)[0]}
 		} else if next.typ == integer {
-			err = next.wrapErr(ErrInvalidDigitInLiteral{n, []rune(next.txt)[0]})
+			err = ErrInvalidDigitInLiteral{next.Position, n, []rune(next.txt)[0]}
 		}
 	}
 
-	return
+	return secError{err}
 }

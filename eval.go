@@ -34,12 +34,12 @@ type (
 func (v variable) Val(env Env) (val float64, err error) {
 	var ok bool
 	if val, ok = env.Vars[v.txt]; !ok {
-		err = token(v).wrapErr(ErrUndeclaredVar{v.txt})
+		err = ErrUndeclaredVar{v.Position, v.txt}
 	}
 	return
 }
 
-func (l literal) Val(_ Env) (val float64, err error) {
+func (l literal) Val(_ Env) (val float64, _ error) {
 	switch l.typ {
 	case integer, float:
 		val, _ = strconv.ParseFloat(l.txt, 64)
@@ -94,7 +94,7 @@ func (b binary) Val(env Env) (val float64, err error) {
 func (c call) Val(env Env) (val float64, err error) {
 	fun, ok := env.Funcs[c.txt]
 	if !ok {
-		err = c.wrapErr(ErrUndeclaredFunc{c.txt})
+		err = ErrUndeclaredFunc{c.token.Position, c.txt}
 		return
 	}
 
@@ -106,10 +106,10 @@ func (c call) Val(env Env) (val float64, err error) {
 	}
 
 	if len(c.args) < argc {
-		err = c.wrapErr(ErrTooFewArgsToCall{c.txt})
+		err = ErrTooFewArgsToCall{c.token.Position, c.txt}
 		return
 	} else if len(c.args) > argc && !ftype.IsVariadic() {
-		err = c.wrapErr(ErrTooManyArgsToCall{c.txt})
+		err = ErrTooManyArgsToCall{c.token.Position, c.txt}
 		return
 	}
 

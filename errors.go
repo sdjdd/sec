@@ -1,19 +1,22 @@
 package sec
 
 import (
-	"errors"
 	"fmt"
 )
 
 type (
 	secError struct {
-		pos
 		err error
 	}
 
 	// get a unexpected Char
 	ErrUnexpected struct {
+		Position
 		Char rune
+	}
+
+	ErrUnexpectedEOF struct {
+		Position
 	}
 
 	// function's Nth parameter is not float64
@@ -42,41 +45,49 @@ type (
 	}
 
 	ErrLiteralNoDigit struct {
+		Position
 		Base int
 	}
 
 	ErrInvalidDigitInLiteral struct {
+		Position
 		Base  int
 		Digit rune
 	}
 
 	ErrUndeclaredVar struct {
+		Position
 		Name string
 	}
 
 	ErrUndeclaredFunc struct {
+		Position
 		Name string
 	}
 
 	ErrTooFewArgsToCall struct {
+		Position
 		Name string
 	}
 
 	ErrTooManyArgsToCall struct {
+		Position
 		Name string
 	}
 )
 
-var errUnexpectedEOF = errors.New("unexpected EOF")
-
 func (t secError) Unwrap() error { return t.err }
 
 func (t secError) Error() string {
-	return fmt.Sprintf("%s: %s", t.pos, t.err)
+	return t.err.Error()
 }
 
 func (e ErrUnexpected) Error() string {
 	return fmt.Sprintf("unexpected %q", e.Char)
+}
+
+func (e ErrUnexpectedEOF) Error() string {
+	return "unexpected EOF"
 }
 
 func (f ErrParamNotFloat64) Error() string {
